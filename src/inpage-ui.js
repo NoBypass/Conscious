@@ -7,6 +7,7 @@
   const CONSCIOUS_BASE_PATH = "/feed/history";
   const CONSCIOUS_QUERY_KEY = "conscious";
   const CONSCIOUS_QUERY_VALUE = "1";
+  const CONSCIOUS_SESSION_ROUTE_KEY = "consciousRouteActive";
 
   let bootstrapTimer = null;
   let observer = null;
@@ -46,6 +47,29 @@
     return params.get(CONSCIOUS_QUERY_KEY) === CONSCIOUS_QUERY_VALUE;
   }
 
+  function setConsciousSessionRoute(active) {
+    try {
+      if (active) {
+        window.sessionStorage.setItem(CONSCIOUS_SESSION_ROUTE_KEY, "1");
+      } else {
+        window.sessionStorage.removeItem(CONSCIOUS_SESSION_ROUTE_KEY);
+      }
+    } catch (_error) {
+      // Ignore storage access issues from restrictive browser settings.
+    }
+  }
+
+  function shouldRestoreConsciousRoute() {
+    if (window.location.pathname !== CONSCIOUS_BASE_PATH) return false;
+    if (isConsciousRoute()) return false;
+
+    try {
+      return window.sessionStorage.getItem(CONSCIOUS_SESSION_ROUTE_KEY) === "1";
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function getConsciousUrl() {
     const url = new URL(window.location.href);
     url.pathname = CONSCIOUS_BASE_PATH;
@@ -55,6 +79,7 @@
 
   function navigateToConsciousRoute() {
     const target = getConsciousUrl();
+    setConsciousSessionRoute(true);
     if (`${window.location.pathname}${window.location.search}` === target) return;
 
     if (window.history && typeof window.history.pushState === "function") {
@@ -136,6 +161,7 @@
     }
 
     const targetHost =
+      getHistoryBrowseRoot() ||
       getHistoryBrowseContentHost() ||
       document.querySelector("ytd-page-manager") ||
       document.body;
@@ -215,43 +241,29 @@
     });
   }
 
+  function getHistoryBrowseRoot() {
+    return document.querySelector("ytd-page-manager ytd-browse[page-subtype='history']") || null;
+  }
+
   function getHistoryBrowseContentHost() {
     return (
       document.querySelector("ytd-page-manager ytd-browse[page-subtype='history'] #contents") ||
       document.querySelector("ytd-page-manager ytd-browse[page-subtype='history'] #primary") ||
-      document.querySelector("ytd-page-manager ytd-browse[page-subtype='history']") ||
+      getHistoryBrowseRoot() ||
       null
     );
   }
 
   function setNativePageVisibility(showNativePage) {
-    const contentHost = getHistoryBrowseContentHost();
-    if (!contentHost) return;
+    const browseRoot = getHistoryBrowseRoot();
+    if (!browseRoot) return;
 
-    const managedChildren = Array.from(contentHost.children).filter(
-      (node) => node.id !== "conscious-page-root"
-    );
+    if (showNativePage) {
+      browseRoot.removeAttribute("data-conscious-native-hidden");
+      return;
+    }
 
-    managedChildren.forEach((node) => {
-      if (showNativePage) {
-        if (!node.hasAttribute("data-conscious-hidden")) return;
-        const previous = node.dataset.consciousPrevDisplay || "";
-        if (previous) {
-          node.style.display = previous;
-        } else {
-          node.style.removeProperty("display");
-        }
-        node.removeAttribute("data-conscious-hidden");
-        delete node.dataset.consciousPrevDisplay;
-        return;
-      }
-
-      if (!node.hasAttribute("data-conscious-hidden")) {
-        node.setAttribute("data-conscious-hidden", "1");
-        node.dataset.consciousPrevDisplay = node.style.display || "";
-      }
-      node.style.display = "none";
-    });
+    browseRoot.setAttribute("data-conscious-native-hidden", "1");
   }
 
   function renderRoutePage() {
@@ -263,9 +275,13 @@
     updateGuideActiveState();
 
     if (isRoute) {
+      setConsciousSessionRoute(true);
       loadShortsState();
       loadHistory();
+      return;
     }
+
+    setConsciousSessionRoute(false);
   }
 
   function createGuideItem(itemId, compact) {
@@ -354,6 +370,11 @@
 
   function bootstrap() {
     if (!hasExtensionContext()) return;
+
+    if (shouldRestoreConsciousRoute() && window.history && typeof window.history.replaceState === "function") {
+      window.history.replaceState(window.history.state, "", getConsciousUrl());
+    }
+
     ensureGuideEntry();
     renderRoutePage();
   }

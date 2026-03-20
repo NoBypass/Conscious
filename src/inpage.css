@@ -193,3 +193,7 @@ html[dark] .conscious-settings-card,
 html[dark] .conscious-history-card {
   background: #212121;
 }
+
+ytd-browse[page-subtype='history'][data-conscious-native-hidden='1'] > :not(#conscious-page-root) {
+  display: none !important;
+}
