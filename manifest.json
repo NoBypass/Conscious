@@ -6,13 +6,13 @@
   "permissions": ["storage", "tabs"],
   "host_permissions": ["*://*.youtube.com/*"],
   "action": {
-    "default_title": "Conscious",
-    "default_popup": "src/popup.html"
+    "default_title": "Conscious"
   },
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],
-      "js": ["src/content.js"],
+      "css": ["src/inpage.css"],
+      "js": ["src/content.js", "src/inpage-ui.js"],
       "run_at": "document_idle"
     }
   ]

@@ -5,6 +5,8 @@ const root = process.cwd();
 const requiredFiles = [
   "manifest.json",
   "src/content.js",
+  "src/inpage-ui.js",
+  "src/inpage.css",
   "src/popup.html",
   "src/popup.js",
   "src/popup.css"
@@ -29,4 +31,3 @@ if (!Array.isArray(manifest.content_scripts) || manifest.content_scripts.length 
 }
 
 console.log("Validation passed: extension files and manifest look good.");
-

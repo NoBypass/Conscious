@@ -1,0 +1,195 @@
+.conscious-guide-item {
+  margin: 0 12px;
+}
+
+.conscious-guide-item.is-mini {
+  margin: 8px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.conscious-guide-button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 12px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  color: #0f0f0f;
+  cursor: pointer;
+  font: 500 14px/20px Arial, sans-serif;
+}
+
+.conscious-guide-item.is-mini .conscious-guide-button {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.conscious-guide-button:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.conscious-guide-button.is-active {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.conscious-guide-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.conscious-guide-label {
+  white-space: nowrap;
+}
+
+#conscious-page-root {
+  position: relative;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+#conscious-page-root[hidden] {
+  display: none;
+}
+
+.conscious-page-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.conscious-page-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  padding-bottom: 12px;
+}
+
+.conscious-page-title {
+  margin: 0;
+  font: 600 28px/34px Arial, sans-serif;
+  color: #0f0f0f;
+}
+
+.conscious-page-subtitle {
+  margin: 6px 0 0;
+  color: #606060;
+  font: 400 14px/20px Arial, sans-serif;
+}
+
+.conscious-settings-card,
+.conscious-history-card {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.conscious-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.conscious-card-title {
+  margin: 0;
+  font: 600 16px/24px Arial, sans-serif;
+  color: #0f0f0f;
+}
+
+.conscious-card-subtitle {
+  margin: 4px 0 0;
+  color: #606060;
+  font: 400 13px/18px Arial, sans-serif;
+}
+
+.conscious-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f0f0f;
+  font: 500 14px/20px Arial, sans-serif;
+}
+
+.conscious-history-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.conscious-history-item {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.conscious-history-link {
+  color: #0f0f0f;
+  text-decoration: none;
+  font: 500 14px/20px Arial, sans-serif;
+}
+
+.conscious-history-link:hover {
+  text-decoration: underline;
+}
+
+.conscious-history-meta,
+.conscious-empty {
+  margin-top: 4px;
+  color: #606060;
+  font: 400 12px/16px Arial, sans-serif;
+}
+
+html[dark] .conscious-guide-button,
+html[dark] .conscious-switch,
+html[dark] .conscious-page-title,
+html[dark] .conscious-card-title,
+html[dark] .conscious-history-link {
+  color: #f1f1f1;
+}
+
+html[dark] .conscious-guide-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html[dark] .conscious-guide-button.is-active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+html[dark] .conscious-guide-icon {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+html[dark] .conscious-page-subtitle,
+html[dark] .conscious-card-subtitle,
+html[dark] .conscious-history-meta,
+html[dark] .conscious-empty {
+  color: #aaaaaa;
+}
+
+html[dark] .conscious-page-header,
+html[dark] .conscious-settings-card,
+html[dark] .conscious-history-card,
+html[dark] .conscious-history-item {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+html[dark] .conscious-settings-card,
+html[dark] .conscious-history-card {
+  background: #212121;
+}

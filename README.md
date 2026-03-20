@@ -1,29 +1,28 @@
 # Conscious (Chrome Extension)
 
-Conscious helps you control YouTube use by blocking Shorts and showing your watch history with tracked watch time.
+Conscious adds a custom YouTube subpage and sidebar entry to help you control and review your viewing behavior.
 
 ## Features
 
-- **Disable Shorts toggle** in popup.
-- Redirects direct `/shorts/...` URLs back to YouTube home when Shorts are disabled.
-- Hides Shorts shelves and Shorts links/cards in common YouTube layouts.
+- Adds a **Conscious** button to the YouTube left sidebar.
+- Clicking it navigates to a custom route: `/feed/conscious`.
+- On that page, you can toggle **Disable all Shorts**.
 - Tracks watch time on standard YouTube watch pages (`/watch?v=...`).
-- Stores and displays recent watch history in the popup (title, link, total watched time, last watched time).
+- Shows watch history with title, total watched duration, and last watched time.
 
 ## Data storage
 
 - `chrome.storage.sync`
   - `shortsDisabled`: whether Shorts blocking is enabled.
 - `chrome.storage.local`
-  - `watchHistory`: array of tracked watch history entries.
+  - `watchHistory`: tracked watch history entries.
 
 ## Project structure
 
 - `manifest.json`: Extension configuration (Manifest V3).
 - `src/content.js`: Shorts blocking plus watch-time tracking.
-- `src/popup.html`: Popup UI (toggle + history view).
-- `src/popup.js`: Toggle handling and history rendering.
-- `src/popup.css`: Popup styling.
+- `src/inpage-ui.js`: Sidebar entry injection and `/feed/conscious` page rendering.
+- `src/inpage.css`: YouTube-style page and sidebar styles.
 - `scripts/validate.mjs`: Local validation script.
 
 ## Load in Chrome
@@ -32,12 +31,10 @@ Conscious helps you control YouTube use by blocking Shorts and showing your watc
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this project folder.
-5. Open YouTube, browse videos, then open the extension popup to see history.
+5. Open YouTube and click **Conscious** in the left sidebar.
 
 ## Local validation
 
 ```bash
 npm test
 ```
-
-This checks required files and manifest basics.
