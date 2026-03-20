@@ -1,6 +1,7 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  min-width: 250px;
+  min-width: 320px;
+  max-width: 360px;
   margin: 0;
   padding: 14px;
 }
@@ -8,6 +9,11 @@ body {
 h1 {
   font-size: 16px;
   margin: 0 0 10px;
+}
+
+h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
 }
 
 .toggle-row {
@@ -18,8 +24,51 @@ h1 {
 }
 
 #status {
-  margin: 10px 0 0;
+  margin: 10px 0 12px;
   color: #444;
   font-size: 13px;
 }
 
+.history-section {
+  border-top: 1px solid #e3e3e3;
+  padding-top: 10px;
+}
+
+.muted {
+  color: #666;
+  font-size: 12px;
+  margin: 0;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.history-item {
+  border: 1px solid #ececec;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.history-title {
+  display: block;
+  color: #111;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.history-title:hover {
+  text-decoration: underline;
+}
+
+.history-meta {
+  color: #555;
+  font-size: 12px;
+}
