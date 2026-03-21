@@ -4,6 +4,7 @@ const REDIRECT_TARGET = "https://www.youtube.com/";
 const HIDDEN_ATTR = "data-shorts-switch-hidden";
 const SHORTS_TOGGLE_MESSAGE = "SHORTS_TOGGLE_UPDATED";
 const HISTORY_UPDATED_MESSAGE = "WATCH_HISTORY_UPDATED";
+const REQUEST_HISTORY_SYNC_MESSAGE = "REQUEST_HISTORY_SYNC";
 const HISTORY_LIMIT = 200;
 
 const SHORTS_CONTAINER_SELECTORS = [
@@ -17,6 +18,8 @@ const SHORTS_LINK_SELECTOR = "a[href^='/shorts/']";
 let shortsDisabled = false;
 let observer = null;
 let activeWatchSession = null;
+let lastKnownUrl = window.location.href;
+let writeQueue = Promise.resolve();
 
 function hideElement(element) {
   if (!element || element.getAttribute(HIDDEN_ATTR) === "1") return;
@@ -27,7 +30,6 @@ function hideElement(element) {
 }
 
 function restoreHiddenElements() {
-  // Restore only elements this extension changed so user toggles are reversible.
   const nodes = document.querySelectorAll(`[${HIDDEN_ATTR}='1']`);
   nodes.forEach((node) => {
     const previous = node.dataset.shortsSwitchPrevDisplay || "";
@@ -120,14 +122,45 @@ function getCurrentVideoId() {
   return value || null;
 }
 
+function isPlaceholderTitle(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return !normalized || normalized === "youtube" || normalized === "unknown title";
+}
+
 function getCurrentVideoTitle() {
   const heading = document.querySelector("h1.ytd-watch-metadata yt-formatted-string");
   if (heading && heading.textContent) {
-    return heading.textContent.trim();
+    const headingTitle = heading.textContent.trim();
+    if (!isPlaceholderTitle(headingTitle)) {
+      return headingTitle;
+    }
   }
 
-  const title = document.title || "";
-  return title.replace(/\s*-\s*YouTube\s*$/, "").trim();
+  const playerTitle = window.ytInitialPlayerResponse?.videoDetails?.title;
+  if (!isPlaceholderTitle(playerTitle)) {
+    return String(playerTitle).trim();
+  }
+
+  const ogTitle = document.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim();
+  if (!isPlaceholderTitle(ogTitle)) {
+    return ogTitle;
+  }
+
+  const metaTitle = document.querySelector("meta[name='title']")?.getAttribute("content")?.trim();
+  if (!isPlaceholderTitle(metaTitle)) {
+    return metaTitle;
+  }
+
+  const pageTitle = (document.title || "").replace(/\s*-\s*YouTube\s*$/, "").trim();
+  if (!isPlaceholderTitle(pageTitle)) {
+    return pageTitle;
+  }
+
+  return "";
+}
+
+function getVideoElement() {
+  return document.querySelector("video");
 }
 
 function notifyHistoryUpdated() {
@@ -136,62 +169,82 @@ function notifyHistoryUpdated() {
   });
 }
 
+function queueHistoryWrite(updater) {
+  writeQueue = writeQueue
+    .catch(() => undefined)
+    .then(
+      () =>
+        new Promise((resolve) => {
+          chrome.storage.local.get({ [HISTORY_STORAGE_KEY]: [] }, (result) => {
+            const history = Array.isArray(result[HISTORY_STORAGE_KEY])
+              ? result[HISTORY_STORAGE_KEY]
+              : [];
+
+            const updatedHistory = updater(history);
+            chrome.storage.local.set({ [HISTORY_STORAGE_KEY]: updatedHistory }, () => {
+              notifyHistoryUpdated();
+              resolve();
+            });
+          });
+        })
+    );
+
+  return writeQueue;
+}
+
 function persistWatchDuration(session, force) {
-  if (!session) return;
+  if (!session) return Promise.resolve();
 
-  const secondsToSave = force
-    ? Math.floor(session.pendingSeconds)
-    : Math.floor(session.pendingSeconds);
+  const millisecondsToSave = force
+    ? session.pendingMilliseconds
+    : session.pendingMilliseconds - (session.pendingMilliseconds % 1000);
 
-  if (secondsToSave < 1) return;
+  const minimumToPersist = force ? 1 : 1000;
+  if (millisecondsToSave < minimumToPersist) return Promise.resolve();
 
-  session.pendingSeconds -= secondsToSave;
+  session.pendingMilliseconds -= millisecondsToSave;
+  const secondsToSave = millisecondsToSave / 1000;
 
-  chrome.storage.local.get({ [HISTORY_STORAGE_KEY]: [] }, (result) => {
-    const history = Array.isArray(result[HISTORY_STORAGE_KEY])
-      ? result[HISTORY_STORAGE_KEY]
-      : [];
-
+  return queueHistoryWrite((history) => {
     const nowIso = new Date().toISOString();
     const existing = history.find((entry) => entry.videoId === session.videoId);
 
     if (existing) {
-      existing.title = session.title || existing.title;
-      existing.url = session.url || existing.url;
+      existing.title = session.title || existing.title || "Unknown title";
+      existing.url = session.url || existing.url || "";
       existing.lastWatchedAt = nowIso;
-      existing.watchedSeconds = (existing.watchedSeconds || 0) + secondsToSave;
+      existing.watchedSeconds = Number(existing.watchedSeconds || 0) + secondsToSave;
     } else {
       history.push({
         videoId: session.videoId,
         title: session.title || "Unknown title",
-        url: session.url,
+        url: session.url || "",
         watchedSeconds: secondsToSave,
         lastWatchedAt: nowIso
       });
     }
 
     history.sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
-    const trimmed = history.slice(0, HISTORY_LIMIT);
-
-    chrome.storage.local.set({ [HISTORY_STORAGE_KEY]: trimmed }, () => {
-      notifyHistoryUpdated();
-    });
+    return history.slice(0, HISTORY_LIMIT);
   });
 }
 
 function flushActiveWatchSession(force) {
   if (!activeWatchSession) return;
-  persistWatchDuration(activeWatchSession, force);
+  void persistWatchDuration(activeWatchSession, force);
 }
 
 function resetWatchSession(videoId) {
-  const title = getCurrentVideoTitle();
+  const videoElement = getVideoElement();
+  const mediaTime = videoElement && Number.isFinite(videoElement.currentTime) ? videoElement.currentTime : 0;
+
   activeWatchSession = {
     videoId,
-    title,
+    title: getCurrentVideoTitle(),
     url: window.location.href,
-    pendingSeconds: 0,
-    lastTickMs: Date.now()
+    pendingMilliseconds: 0,
+    lastTickMs: Date.now(),
+    lastMediaTime: mediaTime
   };
 }
 
@@ -214,29 +267,68 @@ function syncWatchSessionToPage() {
   activeWatchSession.url = window.location.href;
 }
 
+function getMediaProgressDelta(videoElement, session) {
+  if (!videoElement || !session || !Number.isFinite(videoElement.currentTime)) return 0;
+
+  const rawDelta = videoElement.currentTime - Number(session.lastMediaTime || 0);
+  session.lastMediaTime = videoElement.currentTime;
+
+  if (rawDelta <= 0) return 0;
+  if (rawDelta > 15) return 0;
+  return rawDelta;
+}
+
 function updateWatchTimer() {
+  if (window.location.href !== lastKnownUrl) {
+    lastKnownUrl = window.location.href;
+    syncWatchSessionToPage();
+  }
+
   if (!activeWatchSession) return;
 
+  const refreshedTitle = getCurrentVideoTitle();
+  if (!isPlaceholderTitle(refreshedTitle)) {
+    activeWatchSession.title = refreshedTitle;
+  }
+
   const now = Date.now();
-  const elapsedSeconds = (now - activeWatchSession.lastTickMs) / 1000;
+  const elapsedMs = now - activeWatchSession.lastTickMs;
   activeWatchSession.lastTickMs = now;
 
-  if (elapsedSeconds <= 0 || elapsedSeconds > 10) return;
+  if (elapsedMs <= 0 || elapsedMs > 15000) return;
 
-  const videoElement = document.querySelector("video");
+  const videoElement = getVideoElement();
   const isActivelyWatching =
-    videoElement &&
+    Boolean(videoElement) &&
     !videoElement.paused &&
     !videoElement.ended &&
-    document.visibilityState === "visible";
+    videoElement.readyState >= 2;
 
-  if (!isActivelyWatching) return;
+  if (!isActivelyWatching) {
+    if (videoElement && Number.isFinite(videoElement.currentTime)) {
+      activeWatchSession.lastMediaTime = videoElement.currentTime;
+    }
+    return;
+  }
 
-  activeWatchSession.pendingSeconds += elapsedSeconds;
+  const mediaDeltaSeconds = getMediaProgressDelta(videoElement, activeWatchSession);
+  const fallbackSeconds = elapsedMs / 1000;
+  const secondsToAdd = mediaDeltaSeconds > 0 ? mediaDeltaSeconds : fallbackSeconds;
 
-  if (activeWatchSession.pendingSeconds >= 10) {
+  if (secondsToAdd <= 0) return;
+
+  activeWatchSession.pendingMilliseconds += Math.round(secondsToAdd * 1000);
+
+  if (activeWatchSession.pendingMilliseconds >= 10000) {
     flushActiveWatchSession(false);
   }
+}
+
+function handleNavigationEvent() {
+  guardShortsRoute();
+  applyBlocking();
+  syncWatchSessionToPage();
+  lastKnownUrl = window.location.href;
 }
 
 chrome.storage.sync.get({ [SHORTS_STORAGE_KEY]: false }, (result) => {
@@ -246,11 +338,6 @@ chrome.storage.sync.get({ [SHORTS_STORAGE_KEY]: false }, (result) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync" && changes[SHORTS_STORAGE_KEY]) {
     handleShortsSettingUpdate(changes[SHORTS_STORAGE_KEY].newValue);
-    return;
-  }
-
-  if (areaName === "local" && changes[HISTORY_STORAGE_KEY]) {
-    notifyHistoryUpdated();
   }
 });
 
@@ -263,20 +350,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
-  if (message.type === "REQUEST_HISTORY_SYNC") {
-    flushActiveWatchSession(false);
+  if (message.type === REQUEST_HISTORY_SYNC_MESSAGE) {
+    flushActiveWatchSession(true);
     sendResponse({ ok: true });
   }
 });
 
-window.addEventListener("yt-navigate-finish", () => {
-  applyBlocking();
-  syncWatchSessionToPage();
+window.addEventListener("yt-navigate-start", () => {
+  flushActiveWatchSession(true);
 });
 
-window.addEventListener("popstate", () => {
-  guardShortsRoute();
-  syncWatchSessionToPage();
+window.addEventListener("yt-navigate-finish", handleNavigationEvent);
+window.addEventListener("popstate", handleNavigationEvent);
+window.addEventListener("hashchange", handleNavigationEvent);
+
+window.addEventListener("pagehide", () => {
+  flushActiveWatchSession(true);
 });
 
 window.addEventListener("beforeunload", () => {
@@ -285,9 +374,9 @@ window.addEventListener("beforeunload", () => {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    flushActiveWatchSession(false);
+    flushActiveWatchSession(true);
   }
 });
 
 setInterval(updateWatchTimer, 1000);
-syncWatchSessionToPage();
+handleNavigationEvent();

@@ -1,5 +1,7 @@
 # Conscious (Chrome Extension)
 
+> Note: It's vibecoded slop
+
 Conscious adds a custom YouTube subpage and sidebar entry to help you control and review your viewing behavior.
 
 ## Features
