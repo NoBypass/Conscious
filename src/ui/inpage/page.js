@@ -426,14 +426,15 @@
     empty.hidden = true;
     subtext.textContent = `Today vs average day over ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`;
 
-    const width = 760;
-    const height = 220;
-    const paddingLeft = 44;
-    const paddingRight = 12;
+    const renderedRect = svg.getBoundingClientRect();
+    const width = Math.max(640, Math.round(renderedRect.width || 760));
+    const height = Math.max(180, Math.round(renderedRect.height || 220));
+    const paddingLeft = Math.max(44, Math.round(width * 0.058));
+    const paddingRight = Math.max(12, Math.round(width * 0.016));
     const paddingTop = 12;
     const paddingBottom = 28;
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
+    const plotWidth = Math.max(1, width - paddingLeft - paddingRight);
+    const plotHeight = Math.max(1, height - paddingTop - paddingBottom);
     const pointsCount = config.graphBucketCount - 1;
 
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -559,8 +560,24 @@
         return;
       }
 
-      const relativeX = clamp(event.clientX - rect.left, 0, rect.width);
-      const hoverBucket = Math.round((relativeX / rect.width) * pointsCount);
+      const plotLeftPx = rect.left + (paddingLeft / width) * rect.width;
+      const plotRightPx = rect.left + ((paddingLeft + plotWidth) / width) * rect.width;
+      const plotTopPx = rect.top + (paddingTop / height) * rect.height;
+      const plotBottomPx = rect.top + ((paddingTop + plotHeight) / height) * rect.height;
+
+      if (
+        event.clientX < plotLeftPx ||
+        event.clientX > plotRightPx ||
+        event.clientY < plotTopPx ||
+        event.clientY > plotBottomPx
+      ) {
+        hideHover();
+        return;
+      }
+
+      const plotWidthPx = Math.max(1, plotRightPx - plotLeftPx);
+      const relativePlotX = clamp(event.clientX - plotLeftPx, 0, plotWidthPx);
+      const hoverBucket = Math.round((relativePlotX / plotWidthPx) * pointsCount);
       const hoverX = xForIndex(hoverBucket);
       const averageAtBucket = Number(averageCumulative[hoverBucket] || 0);
       const todayAtBucket = hoverBucket <= todayBucket ? Number(todayCumulative[hoverBucket] || 0) : null;
@@ -593,7 +610,7 @@
       const maxY = Math.max(8, window.innerHeight - tooltipRect.height - 8);
       tooltip.style.left = `${clamp(event.clientX + 14, 8, maxX)}px`;
       tooltip.style.top = `${clamp(event.clientY + 14, 8, maxY)}px`;
-    };
+    }
 
     svg.onmousemove = showHover;
     svg.onmouseleave = hideHover;
@@ -662,4 +679,3 @@
     ensureGuideEntries
   };
 })();
-
