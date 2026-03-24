@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Conscious",
   "description": "Gain control over your YouTube consumption.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "permissions": ["storage", "tabs"],
   "host_permissions": ["*://*.youtube.com/*"],
   "action": {
@@ -12,7 +12,15 @@
     {
       "matches": ["*://*.youtube.com/*"],
       "css": ["src/inpage.css"],
-      "js": ["src/content.js", "src/inpage-ui.js"],
+      "js": [
+        "src/content/shared.js",
+        "src/content/storage.js",
+        "src/content/shorts.js",
+        "src/content/daily-timer.js",
+        "src/content/watch-history.js",
+        "src/content.js",
+        "src/inpage-ui.js"
+      ],
       "run_at": "document_idle"
     }
   ]
