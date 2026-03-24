@@ -15,6 +15,8 @@
 
   let bootstrapTimer = null;
   let observer = null;
+  let hasLoadedShortsSnapshot = false;
+  let hasLoadedHistorySnapshot = false;
 
   function hasExtensionContext() {
     return typeof chrome !== "undefined" && Boolean(chrome.runtime && chrome.runtime.id);
@@ -500,8 +502,16 @@
 
     if (isRoute) {
       setConsciousSessionRoute(true);
-      loadShortsState();
-      loadHistory();
+
+      if (!hasLoadedShortsSnapshot) {
+        loadShortsState();
+        hasLoadedShortsSnapshot = true;
+      }
+
+      if (!hasLoadedHistorySnapshot) {
+        loadHistory();
+        hasLoadedHistorySnapshot = true;
+      }
       return;
     }
 
@@ -615,10 +625,6 @@
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName === "sync" && changes[INPAGE_SHORTS_STORAGE_KEY]) {
         loadShortsState();
-      }
-
-      if (areaName === "local" && changes[INPAGE_HISTORY_STORAGE_KEY]) {
-        loadHistory();
       }
     });
   }
