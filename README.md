@@ -34,7 +34,12 @@ Conscious adds a custom YouTube subpage and sidebar entry to help you control an
 - `src/content/watch-history.js`: Watch-session tracking and persistence.
 - `src/content/header-declutter.js`: Masthead declutter feature.
 - `src/content/daily-timer.js`: Top-bar daily timer UI.
-- `src/inpage-ui.js`: Sidebar entry injection and `/feed/conscious` page rendering.
+- `src/content/inpage-shared.js`: Shared in-page route, formatting, and DOM helpers.
+- `src/content/inpage-metrics.js`: History aggregation and graph/heatmap data shaping.
+- `src/content/inpage-heatmap.js`: Heatmap rendering for daily activity.
+- `src/content/inpage-day-trend.js`: SVG trend-graph rendering.
+- `src/content/inpage-stats.js`: Statistics card rendering and graph composition.
+- `src/inpage-ui.js`: Sidebar entry injection and `/feed/conscious` page shell.
 - `src/inpage.css`: YouTube-style page and sidebar styles.
 - `scripts/validate.mjs`: Local validation script.
 

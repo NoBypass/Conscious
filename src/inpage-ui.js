@@ -1,464 +1,9 @@
 (() => {
-  const INPAGE_SHORTS_STORAGE_KEY = "shortsDisabled";
-  const INPAGE_DAILY_TIMER_STORAGE_KEY = "dailyWatchTimerEnabled";
-  const INPAGE_HEADER_DECLUTTER_STORAGE_KEY = "headerDeclutterEnabled";
-  const INPAGE_HISTORY_STORAGE_KEY = "watchHistory";
-  const HISTORY_DISPLAY_LIMIT = 100;
-  const HEATMAP_WEEKS = 52;
-  const HEATMAP_LEVELS = 5;
-  const FULL_GUIDE_ITEM_ID = "conscious-guide-item-full";
-  const MINI_GUIDE_ITEM_ID = "conscious-guide-item-mini";
-  const CONSCIOUS_BASE_PATH = "/feed/history";
-  const CONSCIOUS_QUERY_KEY = "conscious";
-  const CONSCIOUS_QUERY_VALUE = "1";
-  const CONSCIOUS_SESSION_ROUTE_KEY = "consciousRouteActive";
-  const HEATMAP_TOOLTIP_OFFSET = 12;
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const GRAPH_BUCKET_MINUTES = 15;
-  const GRAPH_BUCKET_COUNT = (24 * 60) / GRAPH_BUCKET_MINUTES;
-  const SVG_NS = "http://www.w3.org/2000/svg";
-
-  let bootstrapTimer = null;
-  let observer = null;
-  let hasLoadedSettingsSnapshot = false;
-  let hasLoadedHistorySnapshot = false;
-
-  function hasExtensionContext() {
-    return typeof chrome !== "undefined" && Boolean(chrome.runtime && chrome.runtime.id);
-  }
-
-  function cleanupInvalidatedContext() {
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
-    if (bootstrapTimer) {
-      window.clearTimeout(bootstrapTimer);
-      bootstrapTimer = null;
-    }
-  }
-
-  function safeChromeCall(operation) {
-    if (!hasExtensionContext()) return false;
-    try {
-      operation();
-      return true;
-    } catch (error) {
-      if (String(error).includes("Extension context invalidated")) {
-        cleanupInvalidatedContext();
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  function isConsciousRoute() {
-    if (window.location.pathname !== CONSCIOUS_BASE_PATH) return false;
-    const params = new URLSearchParams(window.location.search);
-    return params.get(CONSCIOUS_QUERY_KEY) === CONSCIOUS_QUERY_VALUE;
-  }
-
-  function setConsciousSessionRoute(active) {
-    try {
-      if (active) {
-        window.sessionStorage.setItem(CONSCIOUS_SESSION_ROUTE_KEY, "1");
-      } else {
-        window.sessionStorage.removeItem(CONSCIOUS_SESSION_ROUTE_KEY);
-      }
-    } catch (_error) {
-      // Ignore storage access issues from restrictive browser settings.
-    }
-  }
-
-  function shouldRestoreConsciousRoute() {
-    if (window.location.pathname !== CONSCIOUS_BASE_PATH) return false;
-    if (isConsciousRoute()) return false;
-
-    try {
-      return window.sessionStorage.getItem(CONSCIOUS_SESSION_ROUTE_KEY) === "1";
-    } catch (_error) {
-      return false;
-    }
-  }
-
-  function getConsciousUrl() {
-    const url = new URL(window.location.href);
-    url.pathname = CONSCIOUS_BASE_PATH;
-    url.searchParams.set(CONSCIOUS_QUERY_KEY, CONSCIOUS_QUERY_VALUE);
-    return `${url.pathname}?${url.searchParams.toString()}`;
-  }
-
-  function navigateToConsciousRoute() {
-    const target = getConsciousUrl();
-    setConsciousSessionRoute(true);
-    if (`${window.location.pathname}${window.location.search}` === target) return;
-
-    if (window.history && typeof window.history.pushState === "function") {
-      window.history.pushState({}, "", target);
-      window.dispatchEvent(new Event("yt-navigate-start"));
-      window.dispatchEvent(new Event("yt-navigate-finish"));
-      return;
-    }
-
-    window.location.assign(target);
-  }
-
-  function formatDuration(totalSeconds) {
-    const rounded = Math.max(0, Math.round(totalSeconds || 0));
-    const hours = Math.floor(rounded / 3600);
-    const minutes = Math.floor((rounded % 3600) / 60);
-    const seconds = rounded % 60;
-
-    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  }
-
-  function formatDurationCompact(totalSeconds) {
-    const rounded = Math.max(0, Math.round(totalSeconds || 0));
-    const hours = Math.floor(rounded / 3600);
-    const minutes = Math.floor((rounded % 3600) / 60);
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
-  }
-
-  function formatLastWatched(isoDate) {
-    const date = new Date(isoDate);
-    if (Number.isNaN(date.getTime())) return "Unknown time";
-    return date.toLocaleString();
-  }
-
-  function getUtcDateKey(date) {
-    return date.toISOString().slice(0, 10);
-  }
-
-  function parseUtcDateKey(key) {
-    return new Date(`${key}T00:00:00Z`);
-  }
-
-  function formatDateKeyForTooltip(key) {
-    const date = parseUtcDateKey(key);
-    if (Number.isNaN(date.getTime())) return key;
-    return date.toLocaleDateString(undefined, {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric"
-    });
-  }
-
-  function buildDailyWatchSummary(history) {
-    const daily = new Map();
-
-    history.forEach((entry) => {
-      const watchByDay = entry && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
-
-      if (watchByDay && Object.keys(watchByDay).length > 0) {
-        Object.entries(watchByDay).forEach(([dayKey, watchedSecondsRaw]) => {
-          const watchedSeconds = Number(watchedSecondsRaw || 0);
-          if (!dayKey || watchedSeconds <= 0) return;
-
-          if (!daily.has(dayKey)) {
-            daily.set(dayKey, { watchedSeconds: 0, videoIds: new Set() });
-          }
-
-          const bucket = daily.get(dayKey);
-          bucket.watchedSeconds += watchedSeconds;
-          if (entry.videoId) bucket.videoIds.add(entry.videoId);
-        });
-        return;
-      }
-
-      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-      const fallbackSeconds = Number(entry.watchedSeconds || 0);
-      if (!fallbackDay || fallbackSeconds <= 0) return;
-
-      if (!daily.has(fallbackDay)) {
-        daily.set(fallbackDay, { watchedSeconds: 0, videoIds: new Set() });
-      }
-
-      const bucket = daily.get(fallbackDay);
-      bucket.watchedSeconds += fallbackSeconds;
-      if (entry.videoId) bucket.videoIds.add(entry.videoId);
-    });
-
-    return daily;
-  }
-
-  function getHeatLevel(watchedSeconds, maxWatchedSeconds) {
-    if (watchedSeconds <= 0 || maxWatchedSeconds <= 0) return 0;
-    const normalized = Math.min(1, Math.sqrt(watchedSeconds / maxWatchedSeconds));
-    return Math.max(1, Math.ceil(normalized * (HEATMAP_LEVELS - 1)));
-  }
-
-  function buildHeatmapDayKeys(totalDays) {
-    const today = new Date();
-    const keys = [];
-
-    for (let index = totalDays - 1; index >= 0; index -= 1) {
-      const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - index));
-      keys.push(getUtcDateKey(date));
-    }
-
-    return keys;
-  }
-
-  function getBucketIndexFromDate(date) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
-    const totalMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
-    return Math.max(0, Math.min(GRAPH_BUCKET_COUNT - 1, Math.floor(totalMinutes / GRAPH_BUCKET_MINUTES)));
-  }
-
-  function getBucketLabel(bucketIndex) {
-    const clamped = Math.max(0, Math.min(GRAPH_BUCKET_COUNT, bucketIndex));
-    const minutes = clamped * GRAPH_BUCKET_MINUTES;
-    const hour = Math.floor(minutes / 60);
-    const minute = minutes % 60;
-    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  }
-
-  function getUtcDayStartMs(dayKey) {
-    const date = parseUtcDateKey(dayKey);
-    if (Number.isNaN(date.getTime())) return NaN;
-    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  }
-
-  function getDaysOnRecord(dayKeys) {
-    if (!dayKeys.length) return 0;
-    const earliest = dayKeys.reduce((minKey, key) => (key < minKey ? key : minKey), dayKeys[0]);
-    const startMs = getUtcDayStartMs(earliest);
-    if (!Number.isFinite(startMs)) return 0;
-
-    const now = new Date();
-    const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    if (todayStartMs < startMs) return 0;
-    return Math.floor((todayStartMs - startMs) / DAY_MS) + 1;
-  }
-
-  function createBucketSeries() {
-    return Array.from({ length: GRAPH_BUCKET_COUNT }, () => 0);
-  }
-
-  function buildTimelineByDay(history) {
-    const timelineByDay = new Map();
-
-    const ensureDaySeries = (dayKey) => {
-      if (!timelineByDay.has(dayKey)) timelineByDay.set(dayKey, createBucketSeries());
-      return timelineByDay.get(dayKey);
-    };
-
-    history.forEach((entry) => {
-      if (!entry || typeof entry !== "object") return;
-
-      const timeline = entry.timelineByDay;
-      let hasTimeline = false;
-
-      if (timeline && typeof timeline === "object") {
-        Object.entries(timeline).forEach(([dayKey, buckets]) => {
-          if (!dayKey || !buckets || typeof buckets !== "object") return;
-          hasTimeline = true;
-          const daySeries = ensureDaySeries(dayKey);
-
-          Object.entries(buckets).forEach(([bucketRaw, secondsRaw]) => {
-            const bucket = Number(bucketRaw);
-            const seconds = Number(secondsRaw || 0);
-            if (!Number.isFinite(bucket) || bucket < 0 || bucket >= GRAPH_BUCKET_COUNT || seconds <= 0) return;
-            daySeries[bucket] += seconds;
-          });
-        });
-      }
-
-      if (hasTimeline) return;
-
-      const watchByDay = entry.watchByDay && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
-      if (watchByDay && Object.keys(watchByDay).length > 0) {
-        Object.entries(watchByDay).forEach(([dayKey, secondsRaw]) => {
-          const seconds = Number(secondsRaw || 0);
-          if (!dayKey || seconds <= 0) return;
-          // Legacy entries do not have intraday buckets, so place them at noon as a neutral fallback.
-          ensureDaySeries(dayKey)[Math.floor(GRAPH_BUCKET_COUNT / 2)] += seconds;
-        });
-        return;
-      }
-
-      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-      const fallbackSeconds = Number(entry.watchedSeconds || 0);
-      if (!fallbackDay || fallbackSeconds <= 0) return;
-
-      const fallbackDate = new Date(entry.lastWatchedAt || `${fallbackDay}T12:00:00Z`);
-      const bucket = getBucketIndexFromDate(fallbackDate);
-      ensureDaySeries(fallbackDay)[bucket] += fallbackSeconds;
-    });
-
-    return timelineByDay;
-  }
-
-  function buildCumulativeSeries(series) {
-    let running = 0;
-    return series.map((value) => {
-      running += Number(value || 0);
-      return running;
-    });
-  }
-
-  function createSvgElement(tagName, attributes) {
-    const element = document.createElementNS(SVG_NS, tagName);
-    Object.entries(attributes || {}).forEach(([key, value]) => {
-      element.setAttribute(key, String(value));
-    });
-    return element;
-  }
-
-  function buildSmoothPath(points) {
-    if (!Array.isArray(points) || points.length === 0) return "";
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-
-    let path = `M ${points[0].x} ${points[0].y}`;
-    for (let index = 1; index < points.length; index += 1) {
-      const prev = points[index - 1];
-      const curr = points[index];
-      const controlX = (prev.x + curr.x) / 2;
-      path += ` C ${controlX} ${prev.y}, ${controlX} ${curr.y}, ${curr.x} ${curr.y}`;
-    }
-    return path;
-  }
-
-  function renderHeatmap(history) {
-    const root = document.getElementById("conscious-page-root");
-    if (!root) return;
-
-    const grid = root.querySelector("#conscious-heatmap-grid");
-    const summary = root.querySelector("#conscious-heatmap-summary");
-    if (!grid || !summary) return;
-
-    const getTooltip = () => {
-      let tooltip = document.getElementById("conscious-heatmap-tooltip");
-      if (tooltip) return tooltip;
-
-      tooltip = document.createElement("div");
-      tooltip.id = "conscious-heatmap-tooltip";
-      tooltip.className = "conscious-heatmap-tooltip";
-      tooltip.hidden = true;
-
-      const container = root.querySelector(".conscious-history-card") || root;
-      container.appendChild(tooltip);
-      return tooltip;
-    };
-
-    const hideTooltip = () => {
-      const tooltip = document.getElementById("conscious-heatmap-tooltip");
-      if (!tooltip) return;
-      tooltip.hidden = true;
-    };
-
-    const showTooltip = (event, dayKey, watchedSeconds, videoCount) => {
-      const tooltip = getTooltip();
-      tooltip.hidden = false;
-      tooltip.innerHTML = "";
-
-      const title = document.createElement("div");
-      title.className = "conscious-heatmap-tooltip-title";
-      title.textContent = formatDateKeyForTooltip(dayKey);
-
-      const watchLine = document.createElement("div");
-      watchLine.className = "conscious-heatmap-tooltip-line";
-      watchLine.textContent = `${formatDuration(watchedSeconds)} watched`;
-
-      const videosLine = document.createElement("div");
-      videosLine.className = "conscious-heatmap-tooltip-line";
-      videosLine.textContent = `${videoCount} video${videoCount === 1 ? "" : "s"}`;
-
-      tooltip.appendChild(title);
-      tooltip.appendChild(watchLine);
-      tooltip.appendChild(videosLine);
-
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const rect = tooltip.getBoundingClientRect();
-      const maxX = Math.max(8, viewportWidth - rect.width - 8);
-      const maxY = Math.max(8, viewportHeight - rect.height - 8);
-
-      const nextLeft = Math.min(Math.max(8, event.clientX + HEATMAP_TOOLTIP_OFFSET), maxX);
-      const nextTop = Math.min(Math.max(8, event.clientY + HEATMAP_TOOLTIP_OFFSET), maxY);
-
-      tooltip.style.left = `${nextLeft}px`;
-      tooltip.style.top = `${nextTop}px`;
-    };
-
-    const daily = buildDailyWatchSummary(history);
-    const dayKeys = buildHeatmapDayKeys(HEATMAP_WEEKS * 7);
-
-    let maxWatchedSeconds = 0;
-    let totalSecondsInRange = 0;
-
-    dayKeys.forEach((dayKey) => {
-      const bucket = daily.get(dayKey);
-      const watchedSeconds = Number(bucket?.watchedSeconds || 0);
-      maxWatchedSeconds = Math.max(maxWatchedSeconds, watchedSeconds);
-      totalSecondsInRange += watchedSeconds;
-    });
-
-    grid.innerHTML = "";
-
-    const firstDate = parseUtcDateKey(dayKeys[0]);
-    const firstWeekdayMondayFirst = Number.isNaN(firstDate.getTime())
-      ? 0
-      : (firstDate.getUTCDay() + 6) % 7;
-    const firstMondayUtcMs = Number.isNaN(firstDate.getTime())
-      ? 0
-      : firstDate.getTime() - firstWeekdayMondayFirst * DAY_MS;
-
-    let maxWeekIndex = 0;
-    dayKeys.forEach((dayKey) => {
-      const date = parseUtcDateKey(dayKey);
-      if (Number.isNaN(date.getTime())) return;
-      const weekIndex = Math.floor((date.getTime() - firstMondayUtcMs) / (7 * DAY_MS));
-      if (weekIndex > maxWeekIndex) maxWeekIndex = weekIndex;
-    });
-
-    grid.style.setProperty("--heatmap-weeks", String(Math.max(1, maxWeekIndex + 1)));
-
-    const fragment = document.createDocumentFragment();
-
-    dayKeys.forEach((dayKey, index) => {
-      const bucket = daily.get(dayKey);
-      const watchedSeconds = Number(bucket?.watchedSeconds || 0);
-      const videoCount = bucket ? bucket.videoIds.size : 0;
-      const level = getHeatLevel(watchedSeconds, maxWatchedSeconds);
-
-      const date = parseUtcDateKey(dayKey);
-      const weekday = Number.isNaN(date.getTime()) ? index % 7 : (date.getUTCDay() + 6) % 7;
-      const weekIndex = Number.isNaN(date.getTime())
-        ? Math.floor(index / 7)
-        : Math.floor((date.getTime() - firstMondayUtcMs) / (7 * DAY_MS));
-
-      const cell = document.createElement("div");
-      cell.className = "conscious-heatmap-cell";
-      cell.dataset.level = String(level);
-      cell.style.gridColumn = String(weekIndex + 1);
-      cell.style.gridRow = String(weekday + 1);
-      cell.setAttribute("role", "gridcell");
-      cell.setAttribute("aria-label", `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`);
-      cell.addEventListener("mouseenter", (event) => {
-        showTooltip(event, dayKey, watchedSeconds, videoCount);
-      });
-      cell.addEventListener("mousemove", (event) => {
-        showTooltip(event, dayKey, watchedSeconds, videoCount);
-      });
-      cell.addEventListener("mouseleave", hideTooltip);
-
-      fragment.appendChild(cell);
-    });
-
-    grid.appendChild(fragment);
-    grid.onmouseleave = hideTooltip;
-
-    const activeDays = dayKeys.reduce((count, dayKey) => count + (daily.has(dayKey) ? 1 : 0), 0);
-    summary.textContent = `${formatDuration(totalSecondsInRange)} watched in the last ${HEATMAP_WEEKS} weeks across ${activeDays} active day${activeDays === 1 ? "" : "s"}.`;
-  }
+  const NS = window.ConsciousInpage;
+  const { constants, state } = NS;
 
   function updateGuideActiveState() {
-    const active = isConsciousRoute();
+    const active = NS.isConsciousRoute();
     document.querySelectorAll(".conscious-guide-button").forEach((button) => {
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -570,39 +115,39 @@
           </div>
         </div>
       `;
-      const toggle = root.querySelector("#conscious-shorts-toggle");
+
+      const shortsToggle = root.querySelector("#conscious-shorts-toggle");
       const dailyTimerToggle = root.querySelector("#conscious-daily-timer-toggle");
       const headerDeclutterToggle = root.querySelector("#conscious-header-declutter-toggle");
-      if (toggle) {
-        toggle.addEventListener("change", () => {
-          safeChromeCall(() => {
-            chrome.storage.sync.set({ [INPAGE_SHORTS_STORAGE_KEY]: toggle.checked });
+
+      if (shortsToggle) {
+        shortsToggle.addEventListener("change", () => {
+          NS.safeChromeCall(() => {
+            chrome.storage.sync.set({ [constants.shortsKey]: shortsToggle.checked });
           });
         });
       }
 
       if (dailyTimerToggle) {
         dailyTimerToggle.addEventListener("change", () => {
-          safeChromeCall(() => {
-            chrome.storage.sync.set({ [INPAGE_DAILY_TIMER_STORAGE_KEY]: dailyTimerToggle.checked });
+          NS.safeChromeCall(() => {
+            chrome.storage.sync.set({ [constants.dailyTimerKey]: dailyTimerToggle.checked });
           });
         });
       }
 
       if (headerDeclutterToggle) {
         headerDeclutterToggle.addEventListener("change", () => {
-          safeChromeCall(() => {
-            chrome.storage.sync.set({
-              [INPAGE_HEADER_DECLUTTER_STORAGE_KEY]: headerDeclutterToggle.checked
-            });
+          NS.safeChromeCall(() => {
+            chrome.storage.sync.set({ [constants.headerDeclutterKey]: headerDeclutterToggle.checked });
           });
         });
       }
     }
 
     const targetHost =
-      getHistoryBrowseRoot() ||
-      getHistoryBrowseContentHost() ||
+      NS.getHistoryBrowseRoot() ||
+      NS.getHistoryBrowseContentHost() ||
       document.querySelector("ytd-page-manager") ||
       document.body;
 
@@ -617,338 +162,54 @@
     const root = document.getElementById("conscious-page-root");
     if (!root) return;
 
-    safeChromeCall(() => {
+    NS.safeChromeCall(() => {
       chrome.storage.sync.get(
         {
-          [INPAGE_SHORTS_STORAGE_KEY]: false,
-          [INPAGE_DAILY_TIMER_STORAGE_KEY]: false,
-          [INPAGE_HEADER_DECLUTTER_STORAGE_KEY]: false
+          [constants.shortsKey]: false,
+          [constants.dailyTimerKey]: false,
+          [constants.headerDeclutterKey]: false
         },
         (result) => {
-          const isDisabled = Boolean(result[INPAGE_SHORTS_STORAGE_KEY]);
-          const dailyTimerEnabled = Boolean(result[INPAGE_DAILY_TIMER_STORAGE_KEY]);
-          const headerDeclutterEnabled = Boolean(result[INPAGE_HEADER_DECLUTTER_STORAGE_KEY]);
-          const checkbox = root.querySelector("#conscious-shorts-toggle");
+          const isShortsDisabled = Boolean(result[constants.shortsKey]);
+          const isDailyTimerEnabled = Boolean(result[constants.dailyTimerKey]);
+          const isHeaderDeclutterEnabled = Boolean(result[constants.headerDeclutterKey]);
+
+          const shortsCheckbox = root.querySelector("#conscious-shorts-toggle");
           const dailyTimerCheckbox = root.querySelector("#conscious-daily-timer-toggle");
           const headerDeclutterCheckbox = root.querySelector("#conscious-header-declutter-toggle");
-          const state = root.querySelector("#conscious-shorts-state");
+
+          const shortsState = root.querySelector("#conscious-shorts-state");
           const dailyTimerState = root.querySelector("#conscious-daily-timer-state");
           const headerDeclutterState = root.querySelector("#conscious-header-declutter-state");
+
           if (
-            !checkbox ||
-            !state ||
+            !shortsCheckbox ||
             !dailyTimerCheckbox ||
-            !dailyTimerState ||
             !headerDeclutterCheckbox ||
+            !shortsState ||
+            !dailyTimerState ||
             !headerDeclutterState
           ) {
             return;
           }
 
-          checkbox.checked = isDisabled;
-          state.textContent = isDisabled
+          shortsCheckbox.checked = isShortsDisabled;
+          shortsState.textContent = isShortsDisabled
             ? "Shorts are blocked across YouTube."
             : "Shorts are currently allowed.";
 
-          dailyTimerCheckbox.checked = dailyTimerEnabled;
-          dailyTimerState.textContent = dailyTimerEnabled
+          dailyTimerCheckbox.checked = isDailyTimerEnabled;
+          dailyTimerState.textContent = isDailyTimerEnabled
             ? "Daily watch timer is shown in the top bar."
             : "Daily watch timer is hidden.";
 
-          headerDeclutterCheckbox.checked = headerDeclutterEnabled;
-          headerDeclutterState.textContent = headerDeclutterEnabled
+          headerDeclutterCheckbox.checked = isHeaderDeclutterEnabled;
+          headerDeclutterState.textContent = isHeaderDeclutterEnabled
             ? "Voice search and Create buttons are hidden."
             : "Voice search and Create buttons are visible.";
         }
-        );
+      );
     });
-  }
-
-  function renderDayTrendGraph(history) {
-    const root = document.getElementById("conscious-page-root");
-    if (!root) return;
-
-    const svg = root.querySelector("#conscious-day-trend-svg");
-    const tooltip = root.querySelector("#conscious-day-trend-tooltip");
-    const empty = root.querySelector("#conscious-day-trend-empty");
-    const subtext = root.querySelector("#conscious-day-trend-subtitle");
-    if (!svg || !tooltip || !empty || !subtext) return;
-
-    const dailySummary = buildDailyWatchSummary(history);
-    const timelineByDay = buildTimelineByDay(history);
-    const recordDayKeys = Array.from(dailySummary.keys());
-    const daysOnRecord = getDaysOnRecord(recordDayKeys);
-    const now = new Date();
-    const todayKey = getUtcDateKey(now);
-    const todayBucket = getBucketIndexFromDate(now);
-
-    const averageBaseSeries = createBucketSeries();
-    if (daysOnRecord > 0) {
-      const earliest = recordDayKeys.reduce((minKey, key) => (key < minKey ? key : minKey), recordDayKeys[0]);
-      const earliestStartMs = getUtcDayStartMs(earliest);
-      if (Number.isFinite(earliestStartMs)) {
-        for (let dayOffset = 0; dayOffset < daysOnRecord; dayOffset += 1) {
-          const dayMs = earliestStartMs + dayOffset * DAY_MS;
-          const dayKey = getUtcDateKey(new Date(dayMs));
-          const daySeries = timelineByDay.get(dayKey);
-          if (!daySeries) continue;
-          for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
-            averageBaseSeries[index] += Number(daySeries[index] || 0);
-          }
-        }
-      }
-
-      for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
-        averageBaseSeries[index] /= daysOnRecord;
-      }
-    }
-
-    const todaySeries = timelineByDay.get(todayKey) || createBucketSeries();
-    const todayCumulative = buildCumulativeSeries(todaySeries);
-    const averageCumulative = buildCumulativeSeries(averageBaseSeries);
-
-    const maxValue = Math.max(
-      1,
-      ...todayCumulative,
-      ...averageCumulative
-    );
-
-    const hasAnyData = recordDayKeys.length > 0 && (todayCumulative.some((v) => v > 0) || averageCumulative.some((v) => v > 0));
-
-    svg.innerHTML = "";
-    tooltip.hidden = true;
-    if (!hasAnyData) {
-      empty.hidden = false;
-      subtext.textContent = "Graph will appear once watch-time history accumulates.";
-      svg.onmousemove = null;
-      svg.onmouseleave = null;
-      return;
-    }
-
-    empty.hidden = true;
-    subtext.textContent = `Today vs average day over ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`;
-
-    const width = 760;
-    const height = 220;
-    const paddingLeft = 44;
-    const paddingRight = 12;
-    const paddingTop = 12;
-    const paddingBottom = 28;
-    const plotWidth = width - paddingLeft - paddingRight;
-    const plotHeight = height - paddingTop - paddingBottom;
-    const pointsCount = GRAPH_BUCKET_COUNT - 1;
-
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-
-    const xForIndex = (index) => paddingLeft + (index / pointsCount) * plotWidth;
-    const yForValue = (value) => paddingTop + (1 - value / maxValue) * plotHeight;
-    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-    const xAxis = createSvgElement("line", {
-      x1: paddingLeft,
-      y1: paddingTop + plotHeight,
-      x2: paddingLeft + plotWidth,
-      y2: paddingTop + plotHeight,
-      class: "conscious-trend-axis"
-    });
-    const yAxis = createSvgElement("line", {
-      x1: paddingLeft,
-      y1: paddingTop,
-      x2: paddingLeft,
-      y2: paddingTop + plotHeight,
-      class: "conscious-trend-axis"
-    });
-    svg.appendChild(xAxis);
-    svg.appendChild(yAxis);
-
-    const averagePoints = averageCumulative.map((value, index) => ({
-      x: xForIndex(index),
-      y: yForValue(value),
-      value
-    }));
-    const avgLine = createSvgElement("path", {
-      d: buildSmoothPath(averagePoints),
-      class: "conscious-trend-line conscious-trend-line-average"
-    });
-    svg.appendChild(avgLine);
-
-    const todayPoints = [];
-    for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
-      if (index > todayBucket) break;
-      todayPoints.push({
-        x: xForIndex(index),
-        y: yForValue(todayCumulative[index]),
-        value: todayCumulative[index]
-      });
-    }
-
-    const todayLine = createSvgElement("path", {
-      d: buildSmoothPath(todayPoints),
-      class: "conscious-trend-line conscious-trend-line-today"
-    });
-    svg.appendChild(todayLine);
-
-    const nowMarker = createSvgElement("line", {
-      x1: xForIndex(todayBucket),
-      y1: paddingTop,
-      x2: xForIndex(todayBucket),
-      y2: paddingTop + plotHeight,
-      class: "conscious-trend-now-marker"
-    });
-    svg.appendChild(nowMarker);
-
-    const hoverMarker = createSvgElement("line", {
-      x1: paddingLeft,
-      y1: paddingTop,
-      x2: paddingLeft,
-      y2: paddingTop + plotHeight,
-      class: "conscious-trend-hover-marker"
-    });
-    hoverMarker.style.display = "none";
-    svg.appendChild(hoverMarker);
-
-    const hoverAvgPoint = createSvgElement("circle", {
-      cx: paddingLeft,
-      cy: paddingTop + plotHeight,
-      r: 3.8,
-      class: "conscious-trend-hover-point conscious-trend-hover-point-average"
-    });
-    hoverAvgPoint.style.display = "none";
-    svg.appendChild(hoverAvgPoint);
-
-    const hoverTodayPoint = createSvgElement("circle", {
-      cx: paddingLeft,
-      cy: paddingTop + plotHeight,
-      r: 4.1,
-      class: "conscious-trend-hover-point conscious-trend-hover-point-today"
-    });
-    hoverTodayPoint.style.display = "none";
-    svg.appendChild(hoverTodayPoint);
-
-    [0, 24, 48, 72, 96].forEach((bucketIndex) => {
-      const x = xForIndex(Math.min(pointsCount, bucketIndex));
-      const label = createSvgElement("text", {
-        x,
-        y: height - 8,
-        class: "conscious-trend-axis-label",
-        "text-anchor": bucketIndex === 0 ? "start" : bucketIndex === 96 ? "end" : "middle"
-      });
-      label.textContent = getBucketLabel(bucketIndex);
-      svg.appendChild(label);
-    });
-
-    const yTop = createSvgElement("text", {
-      x: paddingLeft - 6,
-      y: paddingTop + 10,
-      class: "conscious-trend-axis-label",
-      "text-anchor": "end"
-    });
-    yTop.textContent = formatDurationCompact(maxValue);
-    svg.appendChild(yTop);
-
-    const yBottom = createSvgElement("text", {
-      x: paddingLeft - 6,
-      y: paddingTop + plotHeight,
-      class: "conscious-trend-axis-label",
-      "text-anchor": "end"
-    });
-    yBottom.textContent = "0m";
-    svg.appendChild(yBottom);
-
-    const hideHover = () => {
-      hoverMarker.style.display = "none";
-      hoverAvgPoint.style.display = "none";
-      hoverTodayPoint.style.display = "none";
-      tooltip.hidden = true;
-    };
-
-    const showHover = (event) => {
-      const rect = svg.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) {
-        hideHover();
-        return;
-      }
-
-      const relativeX = clamp(event.clientX - rect.left, 0, rect.width);
-      const hoverBucket = Math.round((relativeX / rect.width) * pointsCount);
-      const hoverX = xForIndex(hoverBucket);
-      const averageAtBucket = Number(averageCumulative[hoverBucket] || 0);
-      const todayAtBucket = hoverBucket <= todayBucket ? Number(todayCumulative[hoverBucket] || 0) : null;
-
-      hoverMarker.style.display = "block";
-      hoverMarker.setAttribute("x1", String(hoverX));
-      hoverMarker.setAttribute("x2", String(hoverX));
-
-      hoverAvgPoint.style.display = "block";
-      hoverAvgPoint.setAttribute("cx", String(hoverX));
-      hoverAvgPoint.setAttribute("cy", String(yForValue(averageAtBucket)));
-
-      if (todayAtBucket === null) {
-        hoverTodayPoint.style.display = "none";
-      } else {
-        hoverTodayPoint.style.display = "block";
-        hoverTodayPoint.setAttribute("cx", String(hoverX));
-        hoverTodayPoint.setAttribute("cy", String(yForValue(todayAtBucket)));
-      }
-
-      const timeLabel = getBucketLabel(hoverBucket);
-      const todayLabel = todayAtBucket === null
-        ? "Not reached yet"
-        : formatDuration(todayAtBucket);
-
-      tooltip.hidden = false;
-      tooltip.innerHTML = `
-        <div class="conscious-day-trend-tooltip-title">${timeLabel}</div>
-        <div class="conscious-day-trend-tooltip-line">Today: ${todayLabel}</div>
-        <div class="conscious-day-trend-tooltip-line">Average: ${formatDuration(averageAtBucket)}</div>
-      `;
-
-      const tooltipRect = tooltip.getBoundingClientRect();
-      const maxX = Math.max(8, window.innerWidth - tooltipRect.width - 8);
-      const maxY = Math.max(8, window.innerHeight - tooltipRect.height - 8);
-      const tooltipX = clamp(event.clientX + 14, 8, maxX);
-      const tooltipY = clamp(event.clientY + 14, 8, maxY);
-      tooltip.style.left = `${tooltipX}px`;
-      tooltip.style.top = `${tooltipY}px`;
-    };
-
-    svg.onmousemove = showHover;
-    svg.onmouseleave = hideHover;
-
-    svg.setAttribute(
-      "aria-label",
-      `Today cumulative watch time is ${formatDuration(todayCumulative[todayBucket] || 0)} by ${getBucketLabel(todayBucket)}. Average full-day total is ${formatDuration(averageCumulative[averageCumulative.length - 1] || 0)}.`
-    );
-  }
-
-  function renderStats(history) {
-    const root = document.getElementById("conscious-page-root");
-    if (!root) return;
-
-    const totalVideosEl = root.querySelector("#conscious-stat-total-videos");
-    const totalTimeEl = root.querySelector("#conscious-stat-total-time");
-    const avgPerDayEl = root.querySelector("#conscious-stat-avg-day");
-    const rangeEl = root.querySelector("#conscious-stats-range");
-    if (!totalVideosEl || !totalTimeEl || !avgPerDayEl || !rangeEl) return;
-
-    const totalVideos = history.reduce((count, entry) => {
-      const watchedSeconds = Number(entry?.watchedSeconds || 0);
-      return count + (watchedSeconds > 0 ? 1 : 0);
-    }, 0);
-
-    const totalSeconds = history.reduce((sum, entry) => sum + Number(entry?.watchedSeconds || 0), 0);
-    const dailySummary = buildDailyWatchSummary(history);
-    const daysOnRecord = getDaysOnRecord(Array.from(dailySummary.keys()));
-    const averagePerDay = daysOnRecord > 0 ? totalSeconds / daysOnRecord : 0;
-
-    totalVideosEl.textContent = new Intl.NumberFormat().format(totalVideos);
-    totalTimeEl.textContent = formatDuration(totalSeconds);
-    avgPerDayEl.textContent = formatDurationCompact(averagePerDay);
-    rangeEl.textContent = daysOnRecord > 0
-      ? `Based on ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`
-      : "No history on record yet.";
-
-    renderDayTrendGraph(history);
   }
 
   function renderHistory(history) {
@@ -959,8 +220,8 @@
     const empty = root.querySelector("#conscious-history-empty");
     if (!list || !empty) return;
 
-    renderStats(history);
-    renderHeatmap(history);
+    NS.renderStats(history);
+    NS.renderHeatmap(history);
 
     list.innerHTML = "";
     if (!history.length) {
@@ -971,7 +232,7 @@
     empty.hidden = true;
     const fragment = document.createDocumentFragment();
 
-    history.slice(0, HISTORY_DISPLAY_LIMIT).forEach((entry) => {
+    history.slice(0, constants.historyDisplayLimit).forEach((entry) => {
       const item = document.createElement("li");
       item.className = "conscious-history-item";
 
@@ -982,7 +243,7 @@
 
       const meta = document.createElement("div");
       meta.className = "conscious-history-meta";
-      meta.textContent = `${formatDuration(entry.watchedSeconds)} watched - ${formatLastWatched(entry.lastWatchedAt)}`;
+      meta.textContent = `${NS.formatDuration(entry.watchedSeconds)} watched - ${NS.formatLastWatched(entry.lastWatchedAt)}`;
 
       item.appendChild(link);
       item.appendChild(meta);
@@ -993,65 +254,38 @@
   }
 
   function loadHistory() {
-    safeChromeCall(() => {
-      chrome.storage.local.get({ [INPAGE_HISTORY_STORAGE_KEY]: [] }, (result) => {
-        const history = Array.isArray(result[INPAGE_HISTORY_STORAGE_KEY])
-          ? result[INPAGE_HISTORY_STORAGE_KEY]
-          : [];
+    NS.safeChromeCall(() => {
+      chrome.storage.local.get({ [constants.historyKey]: [] }, (result) => {
+        const history = Array.isArray(result[constants.historyKey]) ? result[constants.historyKey] : [];
         renderHistory(history);
       });
     });
   }
 
-  function getHistoryBrowseRoot() {
-    return document.querySelector("ytd-page-manager ytd-browse[page-subtype='history']") || null;
-  }
-
-  function getHistoryBrowseContentHost() {
-    return (
-      document.querySelector("ytd-page-manager ytd-browse[page-subtype='history'] #contents") ||
-      document.querySelector("ytd-page-manager ytd-browse[page-subtype='history'] #primary") ||
-      getHistoryBrowseRoot() ||
-      null
-    );
-  }
-
-  function setNativePageVisibility(showNativePage) {
-    const browseRoot = getHistoryBrowseRoot();
-    if (!browseRoot) return;
-
-    if (showNativePage) {
-      browseRoot.removeAttribute("data-conscious-native-hidden");
-      return;
-    }
-
-    browseRoot.setAttribute("data-conscious-native-hidden", "1");
-  }
-
   function renderRoutePage() {
     const root = ensureConsciousPageRoot();
-    const isRoute = isConsciousRoute();
+    const isRoute = NS.isConsciousRoute();
 
     root.hidden = !isRoute;
-    setNativePageVisibility(!isRoute);
+    NS.setNativePageVisibility(!isRoute);
     updateGuideActiveState();
 
-    if (isRoute) {
-      setConsciousSessionRoute(true);
-
-      if (!hasLoadedSettingsSnapshot) {
-        loadSettingsState();
-        hasLoadedSettingsSnapshot = true;
-      }
-
-      if (!hasLoadedHistorySnapshot) {
-        loadHistory();
-        hasLoadedHistorySnapshot = true;
-      }
+    if (!isRoute) {
+      NS.setConsciousSessionRoute(false);
       return;
     }
 
-    setConsciousSessionRoute(false);
+    NS.setConsciousSessionRoute(true);
+
+    if (!state.hasLoadedSettingsSnapshot) {
+      loadSettingsState();
+      state.hasLoadedSettingsSnapshot = true;
+    }
+
+    if (!state.hasLoadedHistorySnapshot) {
+      loadHistory();
+      state.hasLoadedHistorySnapshot = true;
+    }
   }
 
   function createGuideItem(itemId, compact) {
@@ -1076,8 +310,8 @@
     `;
 
     button.addEventListener("click", () => {
-      if (!isConsciousRoute()) {
-        navigateToConsciousRoute();
+      if (!NS.isConsciousRoute()) {
+        NS.navigateToConsciousRoute();
         return;
       }
       renderRoutePage();
@@ -1138,16 +372,16 @@
   }
 
   function ensureGuideEntry() {
-    upsertGuideItem(findExpandedGuideContainer(), FULL_GUIDE_ITEM_ID, false);
-    upsertGuideItem(findMiniGuideContainer(), MINI_GUIDE_ITEM_ID, true);
+    upsertGuideItem(findExpandedGuideContainer(), constants.fullGuideItemId, false);
+    upsertGuideItem(findMiniGuideContainer(), constants.miniGuideItemId, true);
     updateGuideActiveState();
   }
 
   function bootstrap() {
-    if (!hasExtensionContext()) return;
+    if (!NS.hasExtensionContext()) return;
 
-    if (shouldRestoreConsciousRoute() && window.history && typeof window.history.replaceState === "function") {
-      window.history.replaceState(window.history.state, "", getConsciousUrl());
+    if (NS.shouldRestoreConsciousRoute() && window.history && typeof window.history.replaceState === "function") {
+      window.history.replaceState(window.history.state, "", NS.getConsciousUrl());
     }
 
     ensureGuideEntry();
@@ -1155,27 +389,25 @@
   }
 
   function scheduleBootstrap() {
-    if (bootstrapTimer) return;
-    bootstrapTimer = window.setTimeout(() => {
-      bootstrapTimer = null;
+    if (state.bootstrapTimer) return;
+    state.bootstrapTimer = window.setTimeout(() => {
+      state.bootstrapTimer = null;
       bootstrap();
     }, 120);
   }
 
-  if (hasExtensionContext()) {
+  if (NS.hasExtensionContext()) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (
         areaName === "sync" &&
-        (
-          changes[INPAGE_SHORTS_STORAGE_KEY] ||
-          changes[INPAGE_DAILY_TIMER_STORAGE_KEY] ||
-          changes[INPAGE_HEADER_DECLUTTER_STORAGE_KEY]
-        )
+        (changes[constants.shortsKey] ||
+          changes[constants.dailyTimerKey] ||
+          changes[constants.headerDeclutterKey])
       ) {
         loadSettingsState();
       }
 
-      if (areaName === "local" && changes[INPAGE_HISTORY_STORAGE_KEY] && isConsciousRoute()) {
+      if (areaName === "local" && changes[constants.historyKey] && NS.isConsciousRoute()) {
         loadHistory();
       }
     });
@@ -1184,8 +416,8 @@
   window.addEventListener("yt-navigate-finish", scheduleBootstrap);
   window.addEventListener("popstate", scheduleBootstrap);
 
-  observer = new MutationObserver(scheduleBootstrap);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  state.observer = new MutationObserver(scheduleBootstrap);
+  state.observer.observe(document.documentElement, { childList: true, subtree: true });
 
   bootstrap();
 })();

@@ -11,6 +11,11 @@ const requiredFiles = [
   "src/content/watch-history.js",
   "src/content/daily-timer.js",
   "src/content/header-declutter.js",
+  "src/content/inpage-shared.js",
+  "src/content/inpage-metrics.js",
+  "src/content/inpage-heatmap.js",
+  "src/content/inpage-day-trend.js",
+  "src/content/inpage-stats.js",
   "src/inpage-ui.js",
   "src/inpage.css"
 ];

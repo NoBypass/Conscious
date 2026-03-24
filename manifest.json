@@ -20,6 +20,11 @@
         "src/content/header-declutter.js",
         "src/content/watch-history.js",
         "src/content.js",
+        "src/content/inpage-shared.js",
+        "src/content/inpage-metrics.js",
+        "src/content/inpage-heatmap.js",
+        "src/content/inpage-day-trend.js",
+        "src/content/inpage-stats.js",
         "src/inpage-ui.js"
       ],
       "run_at": "document_idle"
