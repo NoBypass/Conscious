@@ -16,6 +16,7 @@
   min-height: 40px;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 12px;
   background: transparent;
   color: #0f0f0f;
@@ -24,9 +25,13 @@
 }
 
 .conscious-guide-item.is-mini .conscious-guide-button {
-  width: 40px;
-  padding: 0;
+  width: 64px;
+  min-height: 72px;
+  padding: 8px 0 6px;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 6px;
 }
 
 .conscious-guide-button:hover {
@@ -34,7 +39,7 @@
 }
 
 .conscious-guide-button.is-active {
-  background: rgba(0, 0, 0, 0.12);
+  background: transparent;
 }
 
 .conscious-guide-icon {
@@ -43,14 +48,37 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.1);
-  font-size: 12px;
-  font-weight: 700;
+  color: #fff;
+}
+
+.conscious-guide-icon-svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.conscious-guide-icon-solid {
+  display: none;
+}
+
+.conscious-guide-button.is-active .conscious-guide-icon-outline {
+  display: none;
+}
+
+.conscious-guide-button.is-active .conscious-guide-icon-solid {
+  display: block;
 }
 
 .conscious-guide-label {
   white-space: nowrap;
+}
+
+.conscious-guide-item.is-mini .conscious-guide-label {
+  max-width: 58px;
+  white-space: normal;
+  text-align: center;
+  font: 500 10px/12px Arial, sans-serif;
 }
 
 #conscious-page-root {
@@ -249,11 +277,11 @@ html[dark] .conscious-guide-button:hover {
 }
 
 html[dark] .conscious-guide-button.is-active {
-  background: rgba(255, 255, 255, 0.18);
+  background: transparent;
 }
 
 html[dark] .conscious-guide-icon {
-  background: rgba(255, 255, 255, 0.2);
+  background: none;
 }
 
 html[dark] .conscious-page-subtitle,
