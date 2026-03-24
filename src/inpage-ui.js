@@ -2,6 +2,8 @@
   const INPAGE_SHORTS_STORAGE_KEY = "shortsDisabled";
   const INPAGE_HISTORY_STORAGE_KEY = "watchHistory";
   const HISTORY_DISPLAY_LIMIT = 100;
+  const HEATMAP_WEEKS = 52;
+  const HEATMAP_LEVELS = 5;
   const FULL_GUIDE_ITEM_ID = "conscious-guide-item-full";
   const MINI_GUIDE_ITEM_ID = "conscious-guide-item-mini";
   const CONSCIOUS_BASE_PATH = "/feed/history";
@@ -109,6 +111,133 @@
     return date.toLocaleString();
   }
 
+  function getUtcDateKey(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function parseUtcDateKey(key) {
+    return new Date(`${key}T00:00:00Z`);
+  }
+
+  function formatDateKeyForTooltip(key) {
+    const date = parseUtcDateKey(key);
+    if (Number.isNaN(date.getTime())) return key;
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
+  }
+
+  function buildDailyWatchSummary(history) {
+    const daily = new Map();
+
+    history.forEach((entry) => {
+      const watchByDay = entry && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
+
+      if (watchByDay && Object.keys(watchByDay).length > 0) {
+        Object.entries(watchByDay).forEach(([dayKey, watchedSecondsRaw]) => {
+          const watchedSeconds = Number(watchedSecondsRaw || 0);
+          if (!dayKey || watchedSeconds <= 0) return;
+
+          if (!daily.has(dayKey)) {
+            daily.set(dayKey, { watchedSeconds: 0, videoIds: new Set() });
+          }
+
+          const bucket = daily.get(dayKey);
+          bucket.watchedSeconds += watchedSeconds;
+          if (entry.videoId) bucket.videoIds.add(entry.videoId);
+        });
+        return;
+      }
+
+      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
+      const fallbackSeconds = Number(entry.watchedSeconds || 0);
+      if (!fallbackDay || fallbackSeconds <= 0) return;
+
+      if (!daily.has(fallbackDay)) {
+        daily.set(fallbackDay, { watchedSeconds: 0, videoIds: new Set() });
+      }
+
+      const bucket = daily.get(fallbackDay);
+      bucket.watchedSeconds += fallbackSeconds;
+      if (entry.videoId) bucket.videoIds.add(entry.videoId);
+    });
+
+    return daily;
+  }
+
+  function getHeatLevel(watchedSeconds, maxWatchedSeconds) {
+    if (watchedSeconds <= 0 || maxWatchedSeconds <= 0) return 0;
+    const normalized = Math.min(1, Math.sqrt(watchedSeconds / maxWatchedSeconds));
+    return Math.max(1, Math.ceil(normalized * (HEATMAP_LEVELS - 1)));
+  }
+
+  function buildHeatmapDayKeys(totalDays) {
+    const today = new Date();
+    const keys = [];
+
+    for (let index = totalDays - 1; index >= 0; index -= 1) {
+      const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - index));
+      keys.push(getUtcDateKey(date));
+    }
+
+    return keys;
+  }
+
+  function renderHeatmap(history) {
+    const root = document.getElementById("conscious-page-root");
+    if (!root) return;
+
+    const grid = root.querySelector("#conscious-heatmap-grid");
+    const summary = root.querySelector("#conscious-heatmap-summary");
+    if (!grid || !summary) return;
+
+    const daily = buildDailyWatchSummary(history);
+    const dayKeys = buildHeatmapDayKeys(HEATMAP_WEEKS * 7);
+
+    let maxWatchedSeconds = 0;
+    let totalSecondsInRange = 0;
+
+    dayKeys.forEach((dayKey) => {
+      const bucket = daily.get(dayKey);
+      const watchedSeconds = Number(bucket?.watchedSeconds || 0);
+      maxWatchedSeconds = Math.max(maxWatchedSeconds, watchedSeconds);
+      totalSecondsInRange += watchedSeconds;
+    });
+
+    grid.innerHTML = "";
+    grid.style.setProperty("--heatmap-weeks", String(HEATMAP_WEEKS));
+
+    const fragment = document.createDocumentFragment();
+
+    dayKeys.forEach((dayKey, index) => {
+      const bucket = daily.get(dayKey);
+      const watchedSeconds = Number(bucket?.watchedSeconds || 0);
+      const videoCount = bucket ? bucket.videoIds.size : 0;
+      const level = getHeatLevel(watchedSeconds, maxWatchedSeconds);
+
+      const date = parseUtcDateKey(dayKey);
+      const weekday = Number.isNaN(date.getTime()) ? index % 7 : date.getUTCDay();
+      const weekIndex = Math.floor(index / 7);
+
+      const cell = document.createElement("div");
+      cell.className = "conscious-heatmap-cell";
+      cell.dataset.level = String(level);
+      cell.style.gridColumn = String(weekIndex + 1);
+      cell.style.gridRow = String(weekday + 1);
+      cell.setAttribute("role", "gridcell");
+      cell.title = `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`;
+
+      fragment.appendChild(cell);
+    });
+
+    grid.appendChild(fragment);
+
+    const activeDays = dayKeys.reduce((count, dayKey) => count + (daily.has(dayKey) ? 1 : 0), 0);
+    summary.textContent = `${formatDuration(totalSecondsInRange)} watched in the last ${HEATMAP_WEEKS} weeks across ${activeDays} active day${activeDays === 1 ? "" : "s"}.`;
+  }
+
   function updateGuideActiveState() {
     const active = isConsciousRoute();
     document.querySelectorAll(".conscious-guide-button").forEach((button) => {
@@ -144,7 +273,16 @@
           </div>
 
           <div class="conscious-history-card">
-            <h2 class="conscious-card-title">Watch history</h2>
+            <div class="conscious-heatmap-header">
+              <h2 class="conscious-card-title">Watch history</h2>
+              <p id="conscious-heatmap-summary" class="conscious-card-subtitle"></p>
+            </div>
+            <div
+              id="conscious-heatmap-grid"
+              class="conscious-heatmap-grid"
+              role="grid"
+              aria-label="Daily watch activity heatmap"
+            ></div>
             <p id="conscious-history-empty" class="conscious-empty" hidden>No watch history yet.</p>
             <ul id="conscious-history-list" class="conscious-history-list"></ul>
           </div>
@@ -199,6 +337,8 @@
     const list = root.querySelector("#conscious-history-list");
     const empty = root.querySelector("#conscious-history-empty");
     if (!list || !empty) return;
+
+    renderHeatmap(history);
 
     list.innerHTML = "";
     if (!history.length) {

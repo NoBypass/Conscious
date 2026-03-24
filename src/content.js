@@ -208,6 +208,7 @@ function persistWatchDuration(session, force) {
 
   return queueHistoryWrite((history) => {
     const nowIso = new Date().toISOString();
+    const dayKey = nowIso.slice(0, 10);
     const existing = history.find((entry) => entry.videoId === session.videoId);
 
     if (existing) {
@@ -215,13 +216,20 @@ function persistWatchDuration(session, force) {
       existing.url = session.url || existing.url || "";
       existing.lastWatchedAt = nowIso;
       existing.watchedSeconds = Number(existing.watchedSeconds || 0) + secondsToSave;
+      const watchByDay =
+        existing.watchByDay && typeof existing.watchByDay === "object" ? existing.watchByDay : {};
+      watchByDay[dayKey] = Number(watchByDay[dayKey] || 0) + secondsToSave;
+      existing.watchByDay = watchByDay;
     } else {
       history.push({
         videoId: session.videoId,
         title: session.title || "Unknown title",
         url: session.url || "",
         watchedSeconds: secondsToSave,
-        lastWatchedAt: nowIso
+        lastWatchedAt: nowIso,
+        watchByDay: {
+          [dayKey]: secondsToSave
+        }
       });
     }
 
