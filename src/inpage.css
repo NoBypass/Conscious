@@ -1,5 +1,10 @@
 .conscious-guide-item {
-  margin: 0 12px;
+  margin-right: 12px;
+  border-radius: 10px;
+}
+
+.conscious-guide-item:hover {
+  background: #212121;
 }
 
 .conscious-guide-item.is-mini {
@@ -11,13 +16,13 @@
 .conscious-guide-button {
   width: 100%;
   border: 0;
+  padding-left: 12px;
   border-radius: 10px;
-  padding: 0 12px;
   min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 24px;
   background: transparent;
   color: #0f0f0f;
   cursor: pointer;
@@ -27,15 +32,11 @@
 .conscious-guide-item.is-mini .conscious-guide-button {
   width: 64px;
   min-height: 72px;
-  padding: 8px 0 6px;
+  padding: 0;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
-}
-
-.conscious-guide-button:hover {
-  background: rgba(0, 0, 0, 0.08);
 }
 
 .conscious-guide-button.is-active {
