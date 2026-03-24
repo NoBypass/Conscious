@@ -309,6 +309,20 @@
     return element;
   }
 
+  function buildSmoothPath(points) {
+    if (!Array.isArray(points) || points.length === 0) return "";
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+    let path = `M ${points[0].x} ${points[0].y}`;
+    for (let index = 1; index < points.length; index += 1) {
+      const prev = points[index - 1];
+      const curr = points[index];
+      const controlX = (prev.x + curr.x) / 2;
+      path += ` C ${controlX} ${prev.y}, ${controlX} ${curr.y}, ${curr.x} ${curr.y}`;
+    }
+    return path;
+  }
+
   function renderHeatmap(history) {
     const root = document.getElementById("conscious-page-root");
     if (!root) return;
@@ -531,6 +545,7 @@
                 aria-label="Cumulative watch-time trend"
                 preserveAspectRatio="none"
               ></svg>
+              <div id="conscious-day-trend-tooltip" class="conscious-day-trend-tooltip" hidden></div>
               <p id="conscious-day-trend-empty" class="conscious-empty" hidden>No watch-time curve yet.</p>
               <div class="conscious-day-trend-legend" aria-hidden="true">
                 <span class="conscious-day-trend-legend-item conscious-day-trend-legend-average">Average day</span>
@@ -654,9 +669,10 @@
     if (!root) return;
 
     const svg = root.querySelector("#conscious-day-trend-svg");
+    const tooltip = root.querySelector("#conscious-day-trend-tooltip");
     const empty = root.querySelector("#conscious-day-trend-empty");
     const subtext = root.querySelector("#conscious-day-trend-subtitle");
-    if (!svg || !empty || !subtext) return;
+    if (!svg || !tooltip || !empty || !subtext) return;
 
     const dailySummary = buildDailyWatchSummary(history);
     const timelineByDay = buildTimelineByDay(history);
@@ -700,9 +716,12 @@
     const hasAnyData = recordDayKeys.length > 0 && (todayCumulative.some((v) => v > 0) || averageCumulative.some((v) => v > 0));
 
     svg.innerHTML = "";
+    tooltip.hidden = true;
     if (!hasAnyData) {
       empty.hidden = false;
       subtext.textContent = "Graph will appear once watch-time history accumulates.";
+      svg.onmousemove = null;
+      svg.onmouseleave = null;
       return;
     }
 
@@ -723,6 +742,7 @@
 
     const xForIndex = (index) => paddingLeft + (index / pointsCount) * plotWidth;
     const yForValue = (value) => paddingTop + (1 - value / maxValue) * plotHeight;
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
     const xAxis = createSvgElement("line", {
       x1: paddingLeft,
@@ -741,11 +761,13 @@
     svg.appendChild(xAxis);
     svg.appendChild(yAxis);
 
-    const avgPoints = averageCumulative
-      .map((value, index) => `${xForIndex(index)},${yForValue(value)}`)
-      .join(" ");
-    const avgLine = createSvgElement("polyline", {
-      points: avgPoints,
+    const averagePoints = averageCumulative.map((value, index) => ({
+      x: xForIndex(index),
+      y: yForValue(value),
+      value
+    }));
+    const avgLine = createSvgElement("path", {
+      d: buildSmoothPath(averagePoints),
       class: "conscious-trend-line conscious-trend-line-average"
     });
     svg.appendChild(avgLine);
@@ -753,11 +775,15 @@
     const todayPoints = [];
     for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
       if (index > todayBucket) break;
-      todayPoints.push(`${xForIndex(index)},${yForValue(todayCumulative[index])}`);
+      todayPoints.push({
+        x: xForIndex(index),
+        y: yForValue(todayCumulative[index]),
+        value: todayCumulative[index]
+      });
     }
 
-    const todayLine = createSvgElement("polyline", {
-      points: todayPoints.join(" "),
+    const todayLine = createSvgElement("path", {
+      d: buildSmoothPath(todayPoints),
       class: "conscious-trend-line conscious-trend-line-today"
     });
     svg.appendChild(todayLine);
@@ -770,6 +796,34 @@
       class: "conscious-trend-now-marker"
     });
     svg.appendChild(nowMarker);
+
+    const hoverMarker = createSvgElement("line", {
+      x1: paddingLeft,
+      y1: paddingTop,
+      x2: paddingLeft,
+      y2: paddingTop + plotHeight,
+      class: "conscious-trend-hover-marker"
+    });
+    hoverMarker.style.display = "none";
+    svg.appendChild(hoverMarker);
+
+    const hoverAvgPoint = createSvgElement("circle", {
+      cx: paddingLeft,
+      cy: paddingTop + plotHeight,
+      r: 3.8,
+      class: "conscious-trend-hover-point conscious-trend-hover-point-average"
+    });
+    hoverAvgPoint.style.display = "none";
+    svg.appendChild(hoverAvgPoint);
+
+    const hoverTodayPoint = createSvgElement("circle", {
+      cx: paddingLeft,
+      cy: paddingTop + plotHeight,
+      r: 4.1,
+      class: "conscious-trend-hover-point conscious-trend-hover-point-today"
+    });
+    hoverTodayPoint.style.display = "none";
+    svg.appendChild(hoverTodayPoint);
 
     [0, 24, 48, 72, 96].forEach((bucketIndex) => {
       const x = xForIndex(Math.min(pointsCount, bucketIndex));
@@ -800,6 +854,66 @@
     });
     yBottom.textContent = "0m";
     svg.appendChild(yBottom);
+
+    const hideHover = () => {
+      hoverMarker.style.display = "none";
+      hoverAvgPoint.style.display = "none";
+      hoverTodayPoint.style.display = "none";
+      tooltip.hidden = true;
+    };
+
+    const showHover = (event) => {
+      const rect = svg.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        hideHover();
+        return;
+      }
+
+      const relativeX = clamp(event.clientX - rect.left, 0, rect.width);
+      const hoverBucket = Math.round((relativeX / rect.width) * pointsCount);
+      const hoverX = xForIndex(hoverBucket);
+      const averageAtBucket = Number(averageCumulative[hoverBucket] || 0);
+      const todayAtBucket = hoverBucket <= todayBucket ? Number(todayCumulative[hoverBucket] || 0) : null;
+
+      hoverMarker.style.display = "block";
+      hoverMarker.setAttribute("x1", String(hoverX));
+      hoverMarker.setAttribute("x2", String(hoverX));
+
+      hoverAvgPoint.style.display = "block";
+      hoverAvgPoint.setAttribute("cx", String(hoverX));
+      hoverAvgPoint.setAttribute("cy", String(yForValue(averageAtBucket)));
+
+      if (todayAtBucket === null) {
+        hoverTodayPoint.style.display = "none";
+      } else {
+        hoverTodayPoint.style.display = "block";
+        hoverTodayPoint.setAttribute("cx", String(hoverX));
+        hoverTodayPoint.setAttribute("cy", String(yForValue(todayAtBucket)));
+      }
+
+      const timeLabel = getBucketLabel(hoverBucket);
+      const todayLabel = todayAtBucket === null
+        ? "Not reached yet"
+        : formatDuration(todayAtBucket);
+
+      tooltip.hidden = false;
+      tooltip.innerHTML = `
+        <div class="conscious-day-trend-tooltip-title">${timeLabel}</div>
+        <div class="conscious-day-trend-tooltip-line">Today: ${todayLabel}</div>
+        <div class="conscious-day-trend-tooltip-line">Average: ${formatDuration(averageAtBucket)}</div>
+      `;
+
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const maxX = Math.max(8, window.innerWidth - tooltipRect.width - 8);
+      const maxY = Math.max(8, window.innerHeight - tooltipRect.height - 8);
+      const tooltipX = clamp(event.clientX + 14, 8, maxX);
+      const tooltipY = clamp(event.clientY + 14, 8, maxY);
+      tooltip.style.left = `${tooltipX}px`;
+      tooltip.style.top = `${tooltipY}px`;
+    };
+
+    svg.onmousemove = showHover;
+    svg.onmouseleave = hideHover;
 
     svg.setAttribute(
       "aria-label",

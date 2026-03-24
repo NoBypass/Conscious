@@ -203,6 +203,52 @@
   stroke-dasharray: 3 3;
 }
 
+.conscious-trend-hover-marker {
+  stroke: rgba(255, 0, 0, 0.35);
+  stroke-width: 1.1;
+  stroke-dasharray: 4 4;
+}
+
+.conscious-trend-hover-point {
+  stroke-width: 1.4;
+}
+
+.conscious-trend-hover-point-average {
+  fill: #ffffff;
+  stroke: rgba(255, 0, 0, 0.7);
+}
+
+.conscious-trend-hover-point-today {
+  fill: rgba(255, 0, 0, 0.95);
+  stroke: rgba(255, 255, 255, 0.88);
+}
+
+.conscious-day-trend-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 15, 15, 0.96);
+  color: #f1f1f1;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  font: 500 12px/16px Arial, sans-serif;
+}
+
+.conscious-day-trend-tooltip-title {
+  margin: 0 0 4px;
+  font: 600 12px/16px Arial, sans-serif;
+  color: #ffffff;
+}
+
+.conscious-day-trend-tooltip-line {
+  margin: 0;
+  color: #d8d8d8;
+}
+
 .conscious-day-trend-legend {
   margin-top: 8px;
   display: flex;
@@ -439,6 +485,26 @@ html[dark] .conscious-trend-line-today {
 
 html[dark] .conscious-trend-now-marker {
   stroke: rgba(255, 77, 79, 0.38);
+}
+
+html[dark] .conscious-trend-hover-marker {
+  stroke: rgba(255, 77, 79, 0.5);
+}
+
+html[dark] .conscious-trend-hover-point-average {
+  fill: #1f1f1f;
+  stroke: rgba(255, 77, 79, 0.7);
+}
+
+html[dark] .conscious-trend-hover-point-today {
+  fill: rgba(255, 77, 79, 0.96);
+  stroke: rgba(20, 20, 20, 0.95);
+}
+
+html[dark] .conscious-day-trend-tooltip {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(18, 18, 18, 0.98);
+  color: #f1f1f1;
 }
 
 html[dark] .conscious-day-trend-legend-average {
