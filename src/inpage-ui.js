@@ -11,6 +11,7 @@
   const CONSCIOUS_QUERY_VALUE = "1";
   const CONSCIOUS_SESSION_ROUTE_KEY = "consciousRouteActive";
   const HEATMAP_TOOLTIP_OFFSET = 12;
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
   let bootstrapTimer = null;
   let observer = null;
@@ -263,7 +264,24 @@
     });
 
     grid.innerHTML = "";
-    grid.style.setProperty("--heatmap-weeks", String(HEATMAP_WEEKS));
+
+    const firstDate = parseUtcDateKey(dayKeys[0]);
+    const firstWeekdayMondayFirst = Number.isNaN(firstDate.getTime())
+      ? 0
+      : (firstDate.getUTCDay() + 6) % 7;
+    const firstMondayUtcMs = Number.isNaN(firstDate.getTime())
+      ? 0
+      : firstDate.getTime() - firstWeekdayMondayFirst * DAY_MS;
+
+    let maxWeekIndex = 0;
+    dayKeys.forEach((dayKey) => {
+      const date = parseUtcDateKey(dayKey);
+      if (Number.isNaN(date.getTime())) return;
+      const weekIndex = Math.floor((date.getTime() - firstMondayUtcMs) / (7 * DAY_MS));
+      if (weekIndex > maxWeekIndex) maxWeekIndex = weekIndex;
+    });
+
+    grid.style.setProperty("--heatmap-weeks", String(Math.max(1, maxWeekIndex + 1)));
 
     const fragment = document.createDocumentFragment();
 
@@ -274,8 +292,10 @@
       const level = getHeatLevel(watchedSeconds, maxWatchedSeconds);
 
       const date = parseUtcDateKey(dayKey);
-      const weekday = Number.isNaN(date.getTime()) ? index % 7 : date.getUTCDay();
-      const weekIndex = Math.floor(index / 7);
+      const weekday = Number.isNaN(date.getTime()) ? index % 7 : (date.getUTCDay() + 6) % 7;
+      const weekIndex = Number.isNaN(date.getTime())
+        ? Math.floor(index / 7)
+        : Math.floor((date.getTime() - firstMondayUtcMs) / (7 * DAY_MS));
 
       const cell = document.createElement("div");
       cell.className = "conscious-heatmap-cell";
