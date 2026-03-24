@@ -1,6 +1,6 @@
 (() => {
   const NS = window.ConsciousContent;
-  const { keys, messages } = NS;
+  const { keys } = NS;
 
   chrome.storage.sync.get(
     {
@@ -28,21 +28,6 @@
 
     if (areaName === "local" && changes[keys.history]) {
       NS.storage.refreshDailyCache();
-    }
-  });
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message) return;
-
-    if (message.type === messages.shortsToggle) {
-      NS.shorts.handleSettingUpdate(Boolean(message.value));
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message.type === messages.requestHistorySync) {
-      NS.watchHistory.flushActive(true);
-      sendResponse({ ok: true });
     }
   });
 

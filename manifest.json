@@ -3,7 +3,7 @@
   "name": "Conscious",
   "description": "Gain control over your YouTube consumption.",
   "version": "0.0.2",
-  "permissions": ["storage", "tabs"],
+  "permissions": ["storage"],
   "host_permissions": ["*://*.youtube.com/*"],
   "action": {
     "default_title": "Conscious"

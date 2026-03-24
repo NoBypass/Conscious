@@ -1,6 +1,6 @@
 (() => {
   const NS = window.ConsciousContent;
-  const { keys, messages, state } = NS;
+  const { keys, state } = NS;
 
   function getCurrentDayKey() {
     return new Date().toISOString().slice(0, 10);
@@ -21,12 +21,6 @@
     }, 0);
   }
 
-  function notifyHistoryUpdated() {
-    chrome.runtime.sendMessage({ type: messages.historyUpdated }, () => {
-      void chrome.runtime.lastError;
-    });
-  }
-
   function queueHistoryWrite(updater) {
     state.writeQueue = state.writeQueue
       .catch(() => undefined)
@@ -38,7 +32,6 @@
               const updatedHistory = updater(history);
 
               chrome.storage.local.set({ [keys.history]: updatedHistory }, () => {
-                notifyHistoryUpdated();
                 resolve();
               });
             });
@@ -66,4 +59,3 @@
     refreshDailyCache
   };
 })();
-

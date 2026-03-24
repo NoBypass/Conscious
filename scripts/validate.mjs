@@ -5,11 +5,13 @@ const root = process.cwd();
 const requiredFiles = [
   "manifest.json",
   "src/content.js",
+  "src/content/shared.js",
+  "src/content/storage.js",
+  "src/content/shorts.js",
+  "src/content/watch-history.js",
+  "src/content/daily-timer.js",
   "src/inpage-ui.js",
-  "src/inpage.css",
-  "src/popup.html",
-  "src/popup.js",
-  "src/popup.css"
+  "src/inpage.css"
 ];
 
 for (const file of requiredFiles) {

@@ -7,12 +7,6 @@
     history: "watchHistory"
   };
 
-  NS.messages = {
-    shortsToggle: "SHORTS_TOGGLE_UPDATED",
-    requestHistorySync: "REQUEST_HISTORY_SYNC",
-    historyUpdated: "WATCH_HISTORY_UPDATED"
-  };
-
   NS.config = {
     historyLimit: 200,
     redirectTarget: "https://www.youtube.com/",
@@ -39,4 +33,3 @@
     cachedDailyWatchedSeconds: 0
   };
 })();
-

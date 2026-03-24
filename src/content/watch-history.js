@@ -215,7 +215,6 @@
 
   NS.watchHistory = {
     flushActive,
-    syncToPage,
     updateTick,
     handleNavigation
   };
