@@ -200,11 +200,13 @@
 
 .conscious-heatmap-grid {
   --heatmap-weeks: 26;
+  --heatmap-gap: clamp(2px, 0.45vw, 6px);
+  --heatmap-padding: clamp(6px, 0.8vw, 10px);
   margin-top: 10px;
   display: grid;
   grid-template-columns: repeat(var(--heatmap-weeks), minmax(0, 1fr));
   grid-template-rows: repeat(7, auto);
-  gap: 6px;
+  gap: var(--heatmap-gap);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -212,7 +214,7 @@
   overflow-y: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
-  padding: 10px;
+  padding: var(--heatmap-padding);
   background: rgba(0, 0, 0, 0.015);
 }
 
@@ -224,19 +226,19 @@
 }
 
 .conscious-heatmap-cell[data-level="1"] {
-  background: rgba(32, 139, 67, 0.28);
+  background: rgba(255, 0, 0, 0.28);
 }
 
 .conscious-heatmap-cell[data-level="2"] {
-  background: rgba(32, 139, 67, 0.45);
+  background: rgba(255, 0, 0, 0.45);
 }
 
 .conscious-heatmap-cell[data-level="3"] {
-  background: rgba(32, 139, 67, 0.67);
+  background: rgba(255, 0, 0, 0.67);
 }
 
 .conscious-heatmap-cell[data-level="4"] {
-  background: rgba(32, 139, 67, 0.9);
+  background: rgba(255, 0, 0, 0.9);
 }
 
 .conscious-heatmap-tooltip {
@@ -315,19 +317,19 @@ html[dark] .conscious-heatmap-cell {
 }
 
 html[dark] .conscious-heatmap-cell[data-level="1"] {
-  background: rgba(46, 160, 67, 0.33);
+  background: rgba(255, 77, 79, 0.33);
 }
 
 html[dark] .conscious-heatmap-cell[data-level="2"] {
-  background: rgba(46, 160, 67, 0.5);
+  background: rgba(255, 77, 79, 0.5);
 }
 
 html[dark] .conscious-heatmap-cell[data-level="3"] {
-  background: rgba(46, 160, 67, 0.7);
+  background: rgba(255, 77, 79, 0.7);
 }
 
 html[dark] .conscious-heatmap-cell[data-level="4"] {
-  background: rgba(46, 160, 67, 0.95);
+  background: rgba(255, 77, 79, 0.95);
 }
 
 html[dark] .conscious-heatmap-tooltip {
