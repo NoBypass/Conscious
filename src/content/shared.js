@@ -4,6 +4,7 @@
   NS.keys = {
     shorts: "shortsDisabled",
     dailyTimer: "dailyWatchTimerEnabled",
+    headerDeclutter: "headerDeclutterEnabled",
     history: "watchHistory"
   };
 
@@ -11,6 +12,7 @@
     historyLimit: 200,
     redirectTarget: "https://www.youtube.com/",
     hiddenAttr: "data-shorts-switch-hidden",
+    headerHiddenAttr: "data-conscious-header-hidden",
     timerElementId: "conscious-daily-watch-timer",
     timerStyleId: "conscious-daily-watch-timer-style",
     shortsContainerSelectors: [
@@ -24,7 +26,9 @@
   NS.state = {
     shortsDisabled: false,
     dailyTimerEnabled: false,
+    headerDeclutterEnabled: false,
     observer: null,
+    headerObserver: null,
     activeWatchSession: null,
     wasVideoPlaying: false,
     lastKnownUrl: window.location.href,

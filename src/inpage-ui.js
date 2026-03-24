@@ -1,6 +1,7 @@
 (() => {
   const INPAGE_SHORTS_STORAGE_KEY = "shortsDisabled";
   const INPAGE_DAILY_TIMER_STORAGE_KEY = "dailyWatchTimerEnabled";
+  const INPAGE_HEADER_DECLUTTER_STORAGE_KEY = "headerDeclutterEnabled";
   const INPAGE_HISTORY_STORAGE_KEY = "watchHistory";
   const HISTORY_DISPLAY_LIMIT = 100;
   const HEATMAP_WEEKS = 52;
@@ -368,6 +369,17 @@
                 <span>Show daily top-bar timer</span>
               </label>
             </div>
+
+            <div class="conscious-toggle-row">
+              <div>
+                <h2 class="conscious-card-title">Header declutter</h2>
+                <p id="conscious-header-declutter-state" class="conscious-card-subtitle"></p>
+              </div>
+              <label class="conscious-switch">
+                <input id="conscious-header-declutter-toggle" type="checkbox" />
+                <span>Hide voice search and Create</span>
+              </label>
+            </div>
           </div>
 
           <div class="conscious-history-card">
@@ -388,6 +400,7 @@
       `;
       const toggle = root.querySelector("#conscious-shorts-toggle");
       const dailyTimerToggle = root.querySelector("#conscious-daily-timer-toggle");
+      const headerDeclutterToggle = root.querySelector("#conscious-header-declutter-toggle");
       if (toggle) {
         toggle.addEventListener("change", () => {
           safeChromeCall(() => {
@@ -400,6 +413,16 @@
         dailyTimerToggle.addEventListener("change", () => {
           safeChromeCall(() => {
             chrome.storage.sync.set({ [INPAGE_DAILY_TIMER_STORAGE_KEY]: dailyTimerToggle.checked });
+          });
+        });
+      }
+
+      if (headerDeclutterToggle) {
+        headerDeclutterToggle.addEventListener("change", () => {
+          safeChromeCall(() => {
+            chrome.storage.sync.set({
+              [INPAGE_HEADER_DECLUTTER_STORAGE_KEY]: headerDeclutterToggle.checked
+            });
           });
         });
       }
@@ -426,16 +449,29 @@
       chrome.storage.sync.get(
         {
           [INPAGE_SHORTS_STORAGE_KEY]: false,
-          [INPAGE_DAILY_TIMER_STORAGE_KEY]: false
+          [INPAGE_DAILY_TIMER_STORAGE_KEY]: false,
+          [INPAGE_HEADER_DECLUTTER_STORAGE_KEY]: false
         },
         (result) => {
           const isDisabled = Boolean(result[INPAGE_SHORTS_STORAGE_KEY]);
           const dailyTimerEnabled = Boolean(result[INPAGE_DAILY_TIMER_STORAGE_KEY]);
+          const headerDeclutterEnabled = Boolean(result[INPAGE_HEADER_DECLUTTER_STORAGE_KEY]);
           const checkbox = root.querySelector("#conscious-shorts-toggle");
           const dailyTimerCheckbox = root.querySelector("#conscious-daily-timer-toggle");
+          const headerDeclutterCheckbox = root.querySelector("#conscious-header-declutter-toggle");
           const state = root.querySelector("#conscious-shorts-state");
           const dailyTimerState = root.querySelector("#conscious-daily-timer-state");
-          if (!checkbox || !state || !dailyTimerCheckbox || !dailyTimerState) return;
+          const headerDeclutterState = root.querySelector("#conscious-header-declutter-state");
+          if (
+            !checkbox ||
+            !state ||
+            !dailyTimerCheckbox ||
+            !dailyTimerState ||
+            !headerDeclutterCheckbox ||
+            !headerDeclutterState
+          ) {
+            return;
+          }
 
           checkbox.checked = isDisabled;
           state.textContent = isDisabled
@@ -446,6 +482,11 @@
           dailyTimerState.textContent = dailyTimerEnabled
             ? "Daily watch timer is shown in the top bar."
             : "Daily watch timer is hidden.";
+
+          headerDeclutterCheckbox.checked = headerDeclutterEnabled;
+          headerDeclutterState.textContent = headerDeclutterEnabled
+            ? "Voice search and Create buttons are hidden."
+            : "Voice search and Create buttons are visible.";
         }
         );
     });
@@ -665,7 +706,11 @@
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (
         areaName === "sync" &&
-        (changes[INPAGE_SHORTS_STORAGE_KEY] || changes[INPAGE_DAILY_TIMER_STORAGE_KEY])
+        (
+          changes[INPAGE_SHORTS_STORAGE_KEY] ||
+          changes[INPAGE_DAILY_TIMER_STORAGE_KEY] ||
+          changes[INPAGE_HEADER_DECLUTTER_STORAGE_KEY]
+        )
       ) {
         loadSettingsState();
       }

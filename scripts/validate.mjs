@@ -10,6 +10,7 @@ const requiredFiles = [
   "src/content/shorts.js",
   "src/content/watch-history.js",
   "src/content/daily-timer.js",
+  "src/content/header-declutter.js",
   "src/inpage-ui.js",
   "src/inpage.css"
 ];

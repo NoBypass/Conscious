@@ -17,6 +17,7 @@
         "src/content/storage.js",
         "src/content/shorts.js",
         "src/content/daily-timer.js",
+        "src/content/header-declutter.js",
         "src/content/watch-history.js",
         "src/content.js",
         "src/inpage-ui.js"

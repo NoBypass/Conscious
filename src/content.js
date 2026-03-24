@@ -5,11 +5,13 @@
   chrome.storage.sync.get(
     {
       [keys.shorts]: false,
-      [keys.dailyTimer]: false
+      [keys.dailyTimer]: false,
+      [keys.headerDeclutter]: false
     },
     (result) => {
       NS.shorts.handleSettingUpdate(result[keys.shorts]);
       NS.dailyTimer.handleSettingUpdate(result[keys.dailyTimer]);
+      NS.headerDeclutter.handleSettingUpdate(result[keys.headerDeclutter]);
     }
   );
 
@@ -23,6 +25,10 @@
 
       if (changes[keys.dailyTimer]) {
         NS.dailyTimer.handleSettingUpdate(changes[keys.dailyTimer].newValue);
+      }
+
+      if (changes[keys.headerDeclutter]) {
+        NS.headerDeclutter.handleSettingUpdate(changes[keys.headerDeclutter].newValue);
       }
     }
 
@@ -38,6 +44,10 @@
   window.addEventListener("yt-navigate-finish", NS.watchHistory.handleNavigation);
   window.addEventListener("popstate", NS.watchHistory.handleNavigation);
   window.addEventListener("hashchange", NS.watchHistory.handleNavigation);
+
+  window.addEventListener("yt-navigate-finish", NS.headerDeclutter.apply);
+  window.addEventListener("popstate", NS.headerDeclutter.apply);
+  window.addEventListener("hashchange", NS.headerDeclutter.apply);
 
   window.addEventListener("pagehide", () => {
     NS.watchHistory.flushActive(true);
@@ -56,4 +66,5 @@
 
   setInterval(NS.watchHistory.updateTick, 1000);
   NS.watchHistory.handleNavigation();
+  NS.headerDeclutter.apply();
 })();

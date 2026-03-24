@@ -10,6 +10,7 @@ Conscious adds a custom YouTube subpage and sidebar entry to help you control an
 - Clicking it navigates to a custom route: `/feed/conscious`.
 - On that page, you can toggle **Disable all Shorts**.
 - On that page, you can toggle a **daily top-bar timer** for YouTube watch time.
+- On that page, you can toggle **header declutter** (hides voice search and Create).
 - Tracks watch time on standard YouTube watch pages (`/watch?v=...`).
 - Shows watch history with title, total watched duration, and last watched time.
 - Shows a daily heatmap with per-day watch duration and video counts.
@@ -19,6 +20,7 @@ Conscious adds a custom YouTube subpage and sidebar entry to help you control an
 - `chrome.storage.sync`
   - `shortsDisabled`: whether Shorts blocking is enabled.
   - `dailyWatchTimerEnabled`: whether the top-bar daily timer is enabled.
+  - `headerDeclutterEnabled`: whether voice search and Create are hidden in the masthead.
 - `chrome.storage.local`
   - `watchHistory`: tracked watch history entries.
 
@@ -30,6 +32,7 @@ Conscious adds a custom YouTube subpage and sidebar entry to help you control an
 - `src/content/storage.js`: Storage utilities and daily cache logic.
 - `src/content/shorts.js`: Shorts blocking feature.
 - `src/content/watch-history.js`: Watch-session tracking and persistence.
+- `src/content/header-declutter.js`: Masthead declutter feature.
 - `src/content/daily-timer.js`: Top-bar daily timer UI.
 - `src/inpage-ui.js`: Sidebar entry injection and `/feed/conscious` page rendering.
 - `src/inpage.css`: YouTube-style page and sidebar styles.
