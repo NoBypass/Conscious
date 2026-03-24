@@ -10,6 +10,7 @@
   const CONSCIOUS_QUERY_KEY = "conscious";
   const CONSCIOUS_QUERY_VALUE = "1";
   const CONSCIOUS_SESSION_ROUTE_KEY = "consciousRouteActive";
+  const HEATMAP_TOOLTIP_OFFSET = 12;
 
   let bootstrapTimer = null;
   let observer = null;
@@ -123,6 +124,7 @@
     const date = parseUtcDateKey(key);
     if (Number.isNaN(date.getTime())) return key;
     return date.toLocaleDateString(undefined, {
+      weekday: "short",
       year: "numeric",
       month: "short",
       day: "numeric"
@@ -193,6 +195,60 @@
     const summary = root.querySelector("#conscious-heatmap-summary");
     if (!grid || !summary) return;
 
+    const getTooltip = () => {
+      let tooltip = document.getElementById("conscious-heatmap-tooltip");
+      if (tooltip) return tooltip;
+
+      tooltip = document.createElement("div");
+      tooltip.id = "conscious-heatmap-tooltip";
+      tooltip.className = "conscious-heatmap-tooltip";
+      tooltip.hidden = true;
+
+      const container = root.querySelector(".conscious-history-card") || root;
+      container.appendChild(tooltip);
+      return tooltip;
+    };
+
+    const hideTooltip = () => {
+      const tooltip = document.getElementById("conscious-heatmap-tooltip");
+      if (!tooltip) return;
+      tooltip.hidden = true;
+    };
+
+    const showTooltip = (event, dayKey, watchedSeconds, videoCount) => {
+      const tooltip = getTooltip();
+      tooltip.hidden = false;
+      tooltip.innerHTML = "";
+
+      const title = document.createElement("div");
+      title.className = "conscious-heatmap-tooltip-title";
+      title.textContent = formatDateKeyForTooltip(dayKey);
+
+      const watchLine = document.createElement("div");
+      watchLine.className = "conscious-heatmap-tooltip-line";
+      watchLine.textContent = `${formatDuration(watchedSeconds)} watched`;
+
+      const videosLine = document.createElement("div");
+      videosLine.className = "conscious-heatmap-tooltip-line";
+      videosLine.textContent = `${videoCount} video${videoCount === 1 ? "" : "s"}`;
+
+      tooltip.appendChild(title);
+      tooltip.appendChild(watchLine);
+      tooltip.appendChild(videosLine);
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const rect = tooltip.getBoundingClientRect();
+      const maxX = Math.max(8, viewportWidth - rect.width - 8);
+      const maxY = Math.max(8, viewportHeight - rect.height - 8);
+
+      const nextLeft = Math.min(Math.max(8, event.clientX + HEATMAP_TOOLTIP_OFFSET), maxX);
+      const nextTop = Math.min(Math.max(8, event.clientY + HEATMAP_TOOLTIP_OFFSET), maxY);
+
+      tooltip.style.left = `${nextLeft}px`;
+      tooltip.style.top = `${nextTop}px`;
+    };
+
     const daily = buildDailyWatchSummary(history);
     const dayKeys = buildHeatmapDayKeys(HEATMAP_WEEKS * 7);
 
@@ -227,12 +283,20 @@
       cell.style.gridColumn = String(weekIndex + 1);
       cell.style.gridRow = String(weekday + 1);
       cell.setAttribute("role", "gridcell");
-      cell.title = `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`;
+      cell.setAttribute("aria-label", `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`);
+      cell.addEventListener("mouseenter", (event) => {
+        showTooltip(event, dayKey, watchedSeconds, videoCount);
+      });
+      cell.addEventListener("mousemove", (event) => {
+        showTooltip(event, dayKey, watchedSeconds, videoCount);
+      });
+      cell.addEventListener("mouseleave", hideTooltip);
 
       fragment.appendChild(cell);
     });
 
     grid.appendChild(fragment);
+    grid.onmouseleave = hideTooltip;
 
     const activeDays = dayKeys.reduce((count, dayKey) => count + (daily.has(dayKey) ? 1 : 0), 0);
     summary.textContent = `${formatDuration(totalSecondsInRange)} watched in the last ${HEATMAP_WEEKS} weeks across ${activeDays} active day${activeDays === 1 ? "" : "s"}.`;
