@@ -4,19 +4,18 @@ import path from "node:path";
 const root = process.cwd();
 const requiredFiles = [
   "manifest.json",
-  "src/content.js",
-  "src/content/shared.js",
-  "src/content/storage.js",
-  "src/content/shorts.js",
-  "src/content/watch-history.js",
-  "src/content/daily-timer.js",
-  "src/content/header-declutter.js",
-  "src/content/inpage-shared.js",
-  "src/content/inpage-metrics.js",
-  "src/content/inpage-heatmap.js",
-  "src/content/inpage-day-trend.js",
-  "src/content/inpage-stats.js",
-  "src/inpage-ui.js",
+  "src/domain/constants.js",
+  "src/domain/formatters.js",
+  "src/domain/watch-history.js",
+  "src/domain/inpage-metrics.js",
+  "src/ports/storage-port.js",
+  "src/adapters/youtube/content-dom.js",
+  "src/adapters/youtube/inpage-dom.js",
+  "src/application/content-app.js",
+  "src/ui/inpage/page.js",
+  "src/application/inpage-app.js",
+  "src/entry/content-script.js",
+  "src/entry/inpage-script.js",
   "src/inpage.css"
 ];
 

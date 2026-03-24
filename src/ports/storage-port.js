@@ -1,14 +1,11 @@
 (() => {
-  const NS = window.ConsciousContent;
-  const { keys, state } = NS;
-  const HISTORY_DAY_RETENTION = 120;
-  const TIMELINE_RECENT_ENTRY_COUNT = 80;
+  const app = window.Conscious;
+  const { keys, config, state } = app;
+  const { safeChromeCall } = app.domain.shared;
 
-  function getCurrentDayKey() {
-    return new Date().toISOString().slice(0, 10);
-  }
+  const getCurrentDayKey = () => new Date().toISOString().slice(0, 10);
 
-  function getDailySecondsFromHistory(history, dayKey) {
+  const getDailySecondsFromHistory = (history, dayKey) => {
     return history.reduce((sum, entry) => {
       if (!entry || typeof entry !== "object") return sum;
 
@@ -21,9 +18,9 @@
       if (fallbackDay !== dayKey) return sum;
       return sum + Number(entry.watchedSeconds || 0);
     }, 0);
-  }
+  };
 
-  function getRecentDaySubset(dayMap, keepDays) {
+  const getRecentDaySubset = (dayMap, keepDays) => {
     if (!dayMap || typeof dayMap !== "object") return {};
 
     const keysByDateDesc = Object.keys(dayMap)
@@ -36,24 +33,22 @@
     });
 
     return subset;
-  }
+  };
 
-  function compactHistoryForStorage(history) {
+  const compactHistoryForStorage = (history) => {
     return history.map((entry, index) => {
       if (!entry || typeof entry !== "object") return entry;
 
-      const keepTimeline = index < TIMELINE_RECENT_ENTRY_COUNT;
+      const keepTimeline = index < config.timelineRecentEntryCount;
       return {
         ...entry,
-        watchByDay: getRecentDaySubset(entry.watchByDay, HISTORY_DAY_RETENTION),
-        timelineByDay: keepTimeline
-          ? getRecentDaySubset(entry.timelineByDay, HISTORY_DAY_RETENTION)
-          : {}
+        watchByDay: getRecentDaySubset(entry.watchByDay, config.historyRetentionDays),
+        timelineByDay: keepTimeline ? getRecentDaySubset(entry.timelineByDay, config.historyRetentionDays) : {}
       };
     });
-  }
+  };
 
-  function setHistory(history, resolve, reject) {
+  const setHistory = (history, resolve, reject) => {
     chrome.storage.local.set({ [keys.history]: history }, () => {
       const error = chrome.runtime?.lastError;
       if (error) {
@@ -62,9 +57,9 @@
       }
       resolve(history);
     });
-  }
+  };
 
-  function queueHistoryWrite(updater) {
+  const queueHistoryWrite = (updater) => {
     state.writeQueue = state.writeQueue
       .catch(() => undefined)
       .then(
@@ -87,42 +82,69 @@
                 return;
               }
 
-              setHistory(
-                updatedHistory,
-                resolve,
-                (writeError) => {
-                  const isQuotaIssue = /quota|max|exceed/i.test(String(writeError?.message || ""));
-                  if (!isQuotaIssue) {
-                    reject(writeError);
-                    return;
-                  }
-
-                  const compactedHistory = compactHistoryForStorage(updatedHistory);
-                  setHistory(compactedHistory, resolve, reject);
+              setHistory(updatedHistory, resolve, (writeError) => {
+                const isQuotaIssue = /quota|max|exceed/i.test(String(writeError?.message || ""));
+                if (!isQuotaIssue) {
+                  reject(writeError);
+                  return;
                 }
-              );
+
+                const compactedHistory = compactHistoryForStorage(updatedHistory);
+                setHistory(compactedHistory, resolve, reject);
+              });
             });
           })
       );
 
     return state.writeQueue;
-  }
+  };
 
-  function refreshDailyCache() {
+  const getSyncSettings = (callback) => {
+    safeChromeCall(() => {
+      chrome.storage.sync.get(
+        {
+          [keys.shorts]: false,
+          [keys.dailyTimer]: false,
+          [keys.headerDeclutter]: false
+        },
+        callback
+      );
+    });
+  };
+
+  const setSyncSetting = (key, value) => {
+    safeChromeCall(() => {
+      chrome.storage.sync.set({ [key]: value });
+    });
+  };
+
+  const getHistory = (callback) => {
+    safeChromeCall(() => {
+      chrome.storage.local.get({ [keys.history]: [] }, (result) => {
+        const history = Array.isArray(result[keys.history]) ? result[keys.history] : [];
+        callback(history);
+      });
+    });
+  };
+
+  const refreshDailyCache = (onUpdated) => {
     const dayKey = getCurrentDayKey();
     state.cachedDailyKey = dayKey;
 
-    chrome.storage.local.get({ [keys.history]: [] }, (result) => {
-      const history = Array.isArray(result[keys.history]) ? result[keys.history] : [];
+    getHistory((history) => {
       state.cachedDailyWatchedSeconds = getDailySecondsFromHistory(history, dayKey);
-      NS.dailyTimer?.render();
+      if (typeof onUpdated === "function") onUpdated();
     });
-  }
+  };
 
-  NS.storage = {
+  app.ports.storage = {
     getCurrentDayKey,
     getDailySecondsFromHistory,
     queueHistoryWrite,
+    getSyncSettings,
+    setSyncSetting,
+    getHistory,
     refreshDailyCache
   };
 })();
+

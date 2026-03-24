@@ -1,23 +1,9 @@
 (() => {
-  const NS = window.ConsciousInpage;
-  const { constants } = NS;
+  const app = window.Conscious;
+  const { config } = app;
+  const { getUtcDateKey, parseUtcDateKey } = app.domain.shared;
 
-  NS.metrics = {
-    buildDailyWatchSummary,
-    getHeatLevel,
-    buildHeatmapDayKeys,
-    getBucketIndexFromDate,
-    getBucketLabel,
-    getUtcDayStartMs,
-    getDaysOnRecord,
-    createBucketSeries,
-    buildTimelineByDay,
-    buildCumulativeSeries,
-    createSvgElement,
-    buildSmoothPath
-  };
-
-  function buildDailyWatchSummary(history) {
+  const buildDailyWatchSummary = (history) => {
     const daily = new Map();
 
     history.forEach((entry) => {
@@ -53,52 +39,47 @@
     });
 
     return daily;
-  }
+  };
 
-  function getHeatLevel(watchedSeconds, maxWatchedSeconds) {
+  const getHeatLevel = (watchedSeconds, maxWatchedSeconds) => {
     if (watchedSeconds <= 0 || maxWatchedSeconds <= 0) return 0;
     const normalized = Math.min(1, Math.sqrt(watchedSeconds / maxWatchedSeconds));
-    return Math.max(1, Math.ceil(normalized * (constants.heatmapLevels - 1)));
-  }
+    return Math.max(1, Math.ceil(normalized * (config.heatmapLevels - 1)));
+  };
 
-  function buildHeatmapDayKeys(totalDays) {
+  const buildHeatmapDayKeys = (totalDays) => {
     const today = new Date();
     const keys = [];
 
     for (let index = totalDays - 1; index >= 0; index -= 1) {
-      const date = new Date(
-        Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - index)
-      );
-      keys.push(NS.getUtcDateKey(date));
+      const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - index));
+      keys.push(getUtcDateKey(date));
     }
 
     return keys;
-  }
+  };
 
-  function getBucketIndexFromDate(date) {
+  const getBucketIndexFromDate = (date) => {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
     const totalMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
-    return Math.max(
-      0,
-      Math.min(constants.graphBucketCount - 1, Math.floor(totalMinutes / constants.graphBucketMinutes))
-    );
-  }
+    return Math.max(0, Math.min(config.graphBucketCount - 1, Math.floor(totalMinutes / config.graphBucketMinutes)));
+  };
 
-  function getBucketLabel(bucketIndex) {
-    const clamped = Math.max(0, Math.min(constants.graphBucketCount, bucketIndex));
-    const minutes = clamped * constants.graphBucketMinutes;
+  const getBucketLabel = (bucketIndex) => {
+    const clamped = Math.max(0, Math.min(config.graphBucketCount, bucketIndex));
+    const minutes = clamped * config.graphBucketMinutes;
     const hour = Math.floor(minutes / 60);
     const minute = minutes % 60;
     return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  }
+  };
 
-  function getUtcDayStartMs(dayKey) {
-    const date = NS.parseUtcDateKey(dayKey);
+  const getUtcDayStartMs = (dayKey) => {
+    const date = parseUtcDateKey(dayKey);
     if (Number.isNaN(date.getTime())) return NaN;
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  }
+  };
 
-  function getDaysOnRecord(dayKeys) {
+  const getDaysOnRecord = (dayKeys) => {
     if (!dayKeys.length) return 0;
 
     const earliest = dayKeys.reduce((minKey, key) => (key < minKey ? key : minKey), dayKeys[0]);
@@ -109,14 +90,12 @@
     const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     if (todayStartMs < startMs) return 0;
 
-    return Math.floor((todayStartMs - startMs) / constants.dayMs) + 1;
-  }
+    return Math.floor((todayStartMs - startMs) / config.dayMs) + 1;
+  };
 
-  function createBucketSeries() {
-    return Array.from({ length: constants.graphBucketCount }, () => 0);
-  }
+  const createBucketSeries = () => Array.from({ length: config.graphBucketCount }, () => 0);
 
-  function buildTimelineByDay(history) {
+  const buildTimelineByDay = (history) => {
     const timelineByDay = new Map();
 
     const ensureDaySeries = (dayKey) => {
@@ -139,12 +118,7 @@
           Object.entries(buckets).forEach(([bucketRaw, secondsRaw]) => {
             const bucket = Number(bucketRaw);
             const seconds = Number(secondsRaw || 0);
-            if (
-              !Number.isFinite(bucket) ||
-              bucket < 0 ||
-              bucket >= constants.graphBucketCount ||
-              seconds <= 0
-            ) {
+            if (!Number.isFinite(bucket) || bucket < 0 || bucket >= config.graphBucketCount || seconds <= 0) {
               return;
             }
             daySeries[bucket] += seconds;
@@ -159,8 +133,7 @@
         Object.entries(watchByDay).forEach(([dayKey, secondsRaw]) => {
           const seconds = Number(secondsRaw || 0);
           if (!dayKey || seconds <= 0) return;
-          // Legacy entries do not have intraday buckets, so place them at noon as a neutral fallback.
-          ensureDaySeries(dayKey)[Math.floor(constants.graphBucketCount / 2)] += seconds;
+          ensureDaySeries(dayKey)[Math.floor(config.graphBucketCount / 2)] += seconds;
         });
         return;
       }
@@ -175,25 +148,25 @@
     });
 
     return timelineByDay;
-  }
+  };
 
-  function buildCumulativeSeries(series) {
+  const buildCumulativeSeries = (series) => {
     let running = 0;
     return series.map((value) => {
       running += Number(value || 0);
       return running;
     });
-  }
+  };
 
-  function createSvgElement(tagName, attributes) {
-    const element = document.createElementNS(constants.svgNs, tagName);
+  const createSvgElement = (tagName, attributes) => {
+    const element = document.createElementNS(config.svgNs, tagName);
     Object.entries(attributes || {}).forEach(([key, value]) => {
       element.setAttribute(key, String(value));
     });
     return element;
-  }
+  };
 
-  function buildSmoothPath(points) {
+  const buildSmoothPath = (points) => {
     if (!Array.isArray(points) || points.length === 0) return "";
     if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
 
@@ -205,6 +178,21 @@
       path += ` C ${controlX} ${prev.y}, ${controlX} ${curr.y}, ${curr.x} ${curr.y}`;
     }
     return path;
-  }
+  };
+
+  app.domain.metrics = {
+    buildDailyWatchSummary,
+    getHeatLevel,
+    buildHeatmapDayKeys,
+    getBucketIndexFromDate,
+    getBucketLabel,
+    getUtcDayStartMs,
+    getDaysOnRecord,
+    createBucketSeries,
+    buildTimelineByDay,
+    buildCumulativeSeries,
+    createSvgElement,
+    buildSmoothPath
+  };
 })();
 
