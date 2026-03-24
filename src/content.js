@@ -18,6 +18,7 @@ const SHORTS_LINK_SELECTOR = "a[href^='/shorts/']";
 let shortsDisabled = false;
 let observer = null;
 let activeWatchSession = null;
+let wasVideoPlaying = false;
 let lastKnownUrl = window.location.href;
 let writeQueue = Promise.resolve();
 
@@ -254,12 +255,14 @@ function syncWatchSessionToPage() {
   if (!videoId) {
     flushActiveWatchSession(true);
     activeWatchSession = null;
+    wasVideoPlaying = false;
     return;
   }
 
   if (!activeWatchSession || activeWatchSession.videoId !== videoId) {
     flushActiveWatchSession(true);
     resetWatchSession(videoId);
+    wasVideoPlaying = false;
     return;
   }
 
@@ -303,6 +306,11 @@ function updateWatchTimer() {
     !videoElement.paused &&
     !videoElement.ended &&
     videoElement.readyState >= 2;
+
+  if (wasVideoPlaying && !isActivelyWatching) {
+    flushActiveWatchSession(true);
+  }
+  wasVideoPlaying = isActivelyWatching;
 
   if (!isActivelyWatching) {
     if (videoElement && Number.isFinite(videoElement.currentTime)) {
