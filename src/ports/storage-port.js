@@ -2,21 +2,16 @@
   const app = window.Conscious;
   const { keys, config, state } = app;
   const { safeChromeCall } = app.domain.shared;
+  const watchHistory = app.domain.watchHistory;
 
   const getCurrentDayKey = () => new Date().toISOString().slice(0, 10);
 
   const getDailySecondsFromHistory = (history, dayKey) => {
     return history.reduce((sum, entry) => {
       if (!entry || typeof entry !== "object") return sum;
-
       const watchByDay = entry.watchByDay;
-      if (watchByDay && typeof watchByDay === "object") {
-        return sum + Number(watchByDay[dayKey] || 0);
-      }
-
-      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-      if (fallbackDay !== dayKey) return sum;
-      return sum + Number(entry.watchedSeconds || 0);
+      if (!watchByDay || typeof watchByDay !== "object") return sum;
+      return sum + Number(watchByDay[dayKey] || 0);
     }, 0);
   };
 
@@ -40,11 +35,28 @@
       if (!entry || typeof entry !== "object") return entry;
 
       const keepTimeline = index < config.timelineRecentEntryCount;
-      return {
+      const compactedSessions = Array.isArray(entry.sessions)
+        ? entry.sessions.map((session) => ({
+            ...session,
+            watchByDay: getRecentDaySubset(session.watchByDay, config.historyRetentionDays),
+            timelineByDay: keepTimeline
+              ? getRecentDaySubset(session.timelineByDay, config.historyRetentionDays)
+              : {}
+          }))
+        : [];
+
+      const compactedEntry = {
         ...entry,
-        watchByDay: getRecentDaySubset(entry.watchByDay, config.historyRetentionDays),
-        timelineByDay: keepTimeline ? getRecentDaySubset(entry.timelineByDay, config.historyRetentionDays) : {}
+        sessions: compactedSessions
       };
+
+      watchHistory.rebuildEntryAggregatesFromSessions(compactedEntry);
+      compactedEntry.watchByDay = getRecentDaySubset(compactedEntry.watchByDay, config.historyRetentionDays);
+      compactedEntry.timelineByDay = keepTimeline
+        ? getRecentDaySubset(compactedEntry.timelineByDay, config.historyRetentionDays)
+        : {};
+
+      return compactedEntry;
     });
   };
 
@@ -72,11 +84,12 @@
                 return;
               }
 
-              const history = Array.isArray(result[keys.history]) ? result[keys.history] : [];
+              const rawHistory = Array.isArray(result[keys.history]) ? result[keys.history] : [];
+              const migration = watchHistory.migrateHistory(rawHistory);
               let updatedHistory;
 
               try {
-                updatedHistory = updater(history);
+                updatedHistory = updater(migration.history);
               } catch (error) {
                 reject(error);
                 return;
@@ -121,8 +134,17 @@
   const getHistory = (callback) => {
     safeChromeCall(() => {
       chrome.storage.local.get({ [keys.history]: [] }, (result) => {
-        const history = Array.isArray(result[keys.history]) ? result[keys.history] : [];
-        callback(history);
+        const rawHistory = Array.isArray(result[keys.history]) ? result[keys.history] : [];
+        const migration = watchHistory.migrateHistory(rawHistory);
+
+        if (migration.didMigrate) {
+          chrome.storage.local.set({ [keys.history]: migration.history }, () => {
+            callback(migration.history);
+          });
+          return;
+        }
+
+        callback(migration.history);
       });
     });
   };
@@ -147,4 +169,3 @@
     refreshDailyCache
   };
 })();
-

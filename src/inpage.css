@@ -338,7 +338,7 @@
 
 .conscious-history-meta,
 .conscious-empty {
-  margin-top: 4px;
+  margin-top: 16px;
   color: #606060;
   font: 400 12px/16px Arial, sans-serif;
 }
@@ -459,7 +459,6 @@ html[dark] .conscious-card-subtitle,
 html[dark] .conscious-history-meta,
 html[dark] .conscious-empty {
   color: #aaaaaa;
-  margin-top: 16px;
 }
 
 html[dark] .conscious-page-header,

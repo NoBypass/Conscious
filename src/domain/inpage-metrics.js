@@ -8,34 +8,20 @@
 
     history.forEach((entry) => {
       const watchByDay = entry && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
+      if (!watchByDay || Object.keys(watchByDay).length === 0) return;
 
-      if (watchByDay && Object.keys(watchByDay).length > 0) {
-        Object.entries(watchByDay).forEach(([dayKey, watchedSecondsRaw]) => {
-          const watchedSeconds = Number(watchedSecondsRaw || 0);
-          if (!dayKey || watchedSeconds <= 0) return;
+      Object.entries(watchByDay).forEach(([dayKey, watchedSecondsRaw]) => {
+        const watchedSeconds = Number(watchedSecondsRaw || 0);
+        if (!dayKey || watchedSeconds <= 0) return;
 
-          if (!daily.has(dayKey)) {
-            daily.set(dayKey, { watchedSeconds: 0, videoIds: new Set() });
-          }
+        if (!daily.has(dayKey)) {
+          daily.set(dayKey, { watchedSeconds: 0, videoIds: new Set() });
+        }
 
-          const bucket = daily.get(dayKey);
-          bucket.watchedSeconds += watchedSeconds;
-          if (entry.videoId) bucket.videoIds.add(entry.videoId);
-        });
-        return;
-      }
-
-      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-      const fallbackSeconds = Number(entry.watchedSeconds || 0);
-      if (!fallbackDay || fallbackSeconds <= 0) return;
-
-      if (!daily.has(fallbackDay)) {
-        daily.set(fallbackDay, { watchedSeconds: 0, videoIds: new Set() });
-      }
-
-      const bucket = daily.get(fallbackDay);
-      bucket.watchedSeconds += fallbackSeconds;
-      if (entry.videoId) bucket.videoIds.add(entry.videoId);
+        const bucket = daily.get(dayKey);
+        bucket.watchedSeconds += watchedSeconds;
+        if (entry.videoId) bucket.videoIds.add(entry.videoId);
+      });
     });
 
     return daily;
@@ -103,16 +89,26 @@
       return timelineByDay.get(dayKey);
     };
 
+    const getFallbackBucketForDay = (dayKey, entry) => {
+      const base = parseUtcDateKey(dayKey);
+      if (Number.isNaN(base.getTime())) return Math.floor(config.graphBucketCount / 2);
+
+      const anchor = new Date(entry?.lastWatchedAt || "");
+      if (Number.isNaN(anchor.getTime())) return Math.floor(config.graphBucketCount / 2);
+
+      base.setUTCHours(anchor.getUTCHours(), anchor.getUTCMinutes(), anchor.getUTCSeconds(), 0);
+      return getBucketIndexFromDate(base);
+    };
+
     history.forEach((entry) => {
       if (!entry || typeof entry !== "object") return;
 
       const timeline = entry.timelineByDay;
-      let hasTimeline = false;
+      const timelineDaysWithData = new Set();
 
       if (timeline && typeof timeline === "object") {
         Object.entries(timeline).forEach(([dayKey, buckets]) => {
           if (!dayKey || !buckets || typeof buckets !== "object") return;
-          hasTimeline = true;
           const daySeries = ensureDaySeries(dayKey);
 
           Object.entries(buckets).forEach(([bucketRaw, secondsRaw]) => {
@@ -122,29 +118,22 @@
               return;
             }
             daySeries[bucket] += seconds;
+            timelineDaysWithData.add(dayKey);
           });
         });
       }
 
-      if (hasTimeline) return;
-
       const watchByDay = entry.watchByDay && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
-      if (watchByDay && Object.keys(watchByDay).length > 0) {
-        Object.entries(watchByDay).forEach(([dayKey, secondsRaw]) => {
-          const seconds = Number(secondsRaw || 0);
-          if (!dayKey || seconds <= 0) return;
-          ensureDaySeries(dayKey)[Math.floor(config.graphBucketCount / 2)] += seconds;
-        });
-        return;
-      }
+      if (!watchByDay) return;
 
-      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-      const fallbackSeconds = Number(entry.watchedSeconds || 0);
-      if (!fallbackDay || fallbackSeconds <= 0) return;
+      Object.entries(watchByDay).forEach(([dayKey, secondsRaw]) => {
+        const seconds = Number(secondsRaw || 0);
+        if (!dayKey || seconds <= 0) return;
+        if (timelineDaysWithData.has(dayKey)) return;
 
-      const fallbackDate = new Date(entry.lastWatchedAt || `${fallbackDay}T12:00:00Z`);
-      const bucket = getBucketIndexFromDate(fallbackDate);
-      ensureDaySeries(fallbackDay)[bucket] += fallbackSeconds;
+        const bucket = getFallbackBucketForDay(dayKey, entry);
+        ensureDaySeries(dayKey)[bucket] += seconds;
+      });
     });
 
     return timelineByDay;
@@ -195,4 +184,3 @@
     buildSmoothPath
   };
 })();
-

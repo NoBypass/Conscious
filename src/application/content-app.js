@@ -213,6 +213,15 @@
     const videoElement = dom.getVideoElement();
     const isActivelyWatching = Boolean(videoElement) && !videoElement.paused && !videoElement.ended && videoElement.readyState >= 2;
 
+    if (
+      !state.wasVideoPlaying &&
+      isActivelyWatching &&
+      state.activeWatchSession.hasRecordedActivity &&
+      state.activeWatchSession.pendingMilliseconds <= 0
+    ) {
+      domain.rotateRecordingSession(state.activeWatchSession);
+    }
+
     if (state.wasVideoPlaying && !isActivelyWatching) {
       flushActive(true);
     }
@@ -226,14 +235,15 @@
       return;
     }
 
-    const mediaDeltaSeconds = domain.getMediaProgressDelta(videoElement, state.activeWatchSession);
+    const mediaDeltaSeconds = domain.getMediaProgressDelta(videoElement, state.activeWatchSession, elapsedMs / 1000);
     const fallbackSeconds = elapsedMs / 1000;
-    const secondsToAdd = mediaDeltaSeconds > 0 ? mediaDeltaSeconds : fallbackSeconds;
+    const secondsToAdd = mediaDeltaSeconds > 0 ? mediaDeltaSeconds : mediaDeltaSeconds < 0 ? 0 : fallbackSeconds;
 
     if (secondsToAdd <= 0) return;
 
     const millisecondsToAdd = Math.round(secondsToAdd * 1000);
     state.activeWatchSession.pendingMilliseconds += millisecondsToAdd;
+    state.activeWatchSession.hasRecordedActivity = true;
     domain.addPendingTimelineMilliseconds(state.activeWatchSession, now, millisecondsToAdd);
 
     if (state.activeWatchSession.pendingMilliseconds >= 10000) {
@@ -306,4 +316,3 @@
     bootstrapContentApp
   };
 })();
-

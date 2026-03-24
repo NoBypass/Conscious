@@ -180,13 +180,9 @@
     if (!entry || !dayKey) return 0;
 
     const watchByDay = entry.watchByDay && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
-    if (watchByDay && Object.prototype.hasOwnProperty.call(watchByDay, dayKey)) {
-      return Number(watchByDay[dayKey] || 0);
-    }
+    if (!watchByDay || !Object.prototype.hasOwnProperty.call(watchByDay, dayKey)) return 0;
 
-    const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
-    if (fallbackDay !== dayKey) return 0;
-    return Number(entry.watchedSeconds || 0);
+    return Number(watchByDay[dayKey] || 0);
   };
 
   const buildHistoryListEntries = (history) => {
