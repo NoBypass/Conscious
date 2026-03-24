@@ -70,6 +70,29 @@
       Number(session.pendingTimelineByDayMs[dayKey][bucketIndex] || 0) + milliseconds;
   }
 
+  function mergePendingTimeline(target, source) {
+    if (!source || typeof source !== "object") return;
+
+    if (!target.pendingTimelineByDayMs || typeof target.pendingTimelineByDayMs !== "object") {
+      target.pendingTimelineByDayMs = {};
+    }
+
+    Object.entries(source).forEach(([dayKey, buckets]) => {
+      if (!dayKey || !buckets || typeof buckets !== "object") return;
+
+      if (!target.pendingTimelineByDayMs[dayKey] || typeof target.pendingTimelineByDayMs[dayKey] !== "object") {
+        target.pendingTimelineByDayMs[dayKey] = {};
+      }
+
+      Object.entries(buckets).forEach(([bucketKey, bucketMsRaw]) => {
+        const bucketMs = Number(bucketMsRaw || 0);
+        if (bucketMs <= 0) return;
+        target.pendingTimelineByDayMs[dayKey][bucketKey] =
+          Number(target.pendingTimelineByDayMs[dayKey][bucketKey] || 0) + bucketMs;
+      });
+    });
+  }
+
   function persistWatchDuration(session, force) {
     if (!session) return Promise.resolve();
 
@@ -77,78 +100,87 @@
     if (session.pendingMilliseconds < minimumToPersist) return Promise.resolve();
 
     const millisecondsToSave = session.pendingMilliseconds;
-    session.pendingMilliseconds = 0;
     const secondsToSave = millisecondsToSave / 1000;
-
     const pendingTimelineByDayMs =
       session.pendingTimelineByDayMs && typeof session.pendingTimelineByDayMs === "object"
         ? session.pendingTimelineByDayMs
         : {};
+
+    session.pendingMilliseconds = 0;
     session.pendingTimelineByDayMs = {};
 
-    return NS.storage.queueHistoryWrite((history) => {
-      const nowIso = new Date().toISOString();
-      const dayKey = nowIso.slice(0, 10);
-      const existing = history.find((entry) => entry.videoId === session.videoId);
+    return NS.storage
+      .queueHistoryWrite((history) => {
+        const nowIso = new Date().toISOString();
+        const dayKey = nowIso.slice(0, 10);
+        const existing = history.find((entry) => entry.videoId === session.videoId);
 
-      const mergeTimelineByDay = (target) => {
-        const timelineByDay =
-          target.timelineByDay && typeof target.timelineByDay === "object" ? target.timelineByDay : {};
+        const mergeTimelineByDay = (target) => {
+          const timelineByDay =
+            target.timelineByDay && typeof target.timelineByDay === "object" ? target.timelineByDay : {};
 
-        Object.entries(pendingTimelineByDayMs).forEach(([pendingDayKey, buckets]) => {
-          if (!pendingDayKey || !buckets || typeof buckets !== "object") return;
-          const dayTimeline =
-            timelineByDay[pendingDayKey] && typeof timelineByDay[pendingDayKey] === "object"
-              ? timelineByDay[pendingDayKey]
-              : {};
+          Object.entries(pendingTimelineByDayMs).forEach(([pendingDayKey, buckets]) => {
+            if (!pendingDayKey || !buckets || typeof buckets !== "object") return;
+            const dayTimeline =
+              timelineByDay[pendingDayKey] && typeof timelineByDay[pendingDayKey] === "object"
+                ? timelineByDay[pendingDayKey]
+                : {};
 
-          Object.entries(buckets).forEach(([bucketKey, bucketMsRaw]) => {
-            const bucket = Number(bucketKey);
-            const bucketMs = Number(bucketMsRaw || 0);
-            if (!Number.isFinite(bucket) || bucket < 0 || bucket >= GRAPH_BUCKET_COUNT || bucketMs <= 0) return;
-            dayTimeline[bucket] = Number(dayTimeline[bucket] || 0) + bucketMs / 1000;
+            Object.entries(buckets).forEach(([bucketKey, bucketMsRaw]) => {
+              const bucket = Number(bucketKey);
+              const bucketMs = Number(bucketMsRaw || 0);
+              if (!Number.isFinite(bucket) || bucket < 0 || bucket >= GRAPH_BUCKET_COUNT || bucketMs <= 0) {
+                return;
+              }
+              dayTimeline[bucket] = Number(dayTimeline[bucket] || 0) + bucketMs / 1000;
+            });
+
+            timelineByDay[pendingDayKey] = dayTimeline;
           });
 
-          timelineByDay[pendingDayKey] = dayTimeline;
-        });
-
-        target.timelineByDay = timelineByDay;
-      };
-
-      if (existing) {
-        existing.title = session.title || existing.title || "Unknown title";
-        existing.url = session.url || existing.url || "";
-        existing.lastWatchedAt = nowIso;
-        existing.watchedSeconds = Number(existing.watchedSeconds || 0) + secondsToSave;
-        const watchByDay =
-          existing.watchByDay && typeof existing.watchByDay === "object" ? existing.watchByDay : {};
-        watchByDay[dayKey] = Number(watchByDay[dayKey] || 0) + secondsToSave;
-        existing.watchByDay = watchByDay;
-        mergeTimelineByDay(existing);
-      } else {
-        const nextEntry = {
-          videoId: session.videoId,
-          title: session.title || "Unknown title",
-          url: session.url || "",
-          watchedSeconds: secondsToSave,
-          lastWatchedAt: nowIso,
-          watchByDay: {
-            [dayKey]: secondsToSave
-          },
-          timelineByDay: {}
+          target.timelineByDay = timelineByDay;
         };
-        mergeTimelineByDay(nextEntry);
-        history.push(nextEntry);
-      }
 
-      history.sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
-      const trimmed = history.slice(0, config.historyLimit);
-      state.cachedDailyWatchedSeconds = NS.storage.getDailySecondsFromHistory(
-        trimmed,
-        NS.storage.getCurrentDayKey()
-      );
-      return trimmed;
-    });
+        if (existing) {
+          existing.title = session.title || existing.title || "Unknown title";
+          existing.url = session.url || existing.url || "";
+          existing.lastWatchedAt = nowIso;
+          existing.watchedSeconds = Number(existing.watchedSeconds || 0) + secondsToSave;
+          const watchByDay =
+            existing.watchByDay && typeof existing.watchByDay === "object" ? existing.watchByDay : {};
+          watchByDay[dayKey] = Number(watchByDay[dayKey] || 0) + secondsToSave;
+          existing.watchByDay = watchByDay;
+          mergeTimelineByDay(existing);
+        } else {
+          const nextEntry = {
+            videoId: session.videoId,
+            title: session.title || "Unknown title",
+            url: session.url || "",
+            watchedSeconds: secondsToSave,
+            lastWatchedAt: nowIso,
+            watchByDay: {
+              [dayKey]: secondsToSave
+            },
+            timelineByDay: {}
+          };
+          mergeTimelineByDay(nextEntry);
+          history.push(nextEntry);
+        }
+
+        history.sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
+        return history.slice(0, config.historyLimit);
+      })
+      .then((savedHistory) => {
+        state.cachedDailyWatchedSeconds = NS.storage.getDailySecondsFromHistory(
+          savedHistory,
+          NS.storage.getCurrentDayKey()
+        );
+      })
+      .catch(() => {
+        // Preserve unsaved watch time so retries can persist later.
+        session.pendingMilliseconds += millisecondsToSave;
+        mergePendingTimeline(session, pendingTimelineByDayMs);
+      });
   }
 
   function flushActive(force) {
