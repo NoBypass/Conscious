@@ -1,11 +1,18 @@
 const SHORTS_STORAGE_KEY = "shortsDisabled";
+const DAILY_TIMER_STORAGE_KEY = "dailyWatchTimerEnabled";
 const HISTORY_STORAGE_KEY = "watchHistory";
+
 const REDIRECT_TARGET = "https://www.youtube.com/";
 const HIDDEN_ATTR = "data-shorts-switch-hidden";
+
 const SHORTS_TOGGLE_MESSAGE = "SHORTS_TOGGLE_UPDATED";
-const HISTORY_UPDATED_MESSAGE = "WATCH_HISTORY_UPDATED";
 const REQUEST_HISTORY_SYNC_MESSAGE = "REQUEST_HISTORY_SYNC";
+const HISTORY_UPDATED_MESSAGE = "WATCH_HISTORY_UPDATED";
+
 const HISTORY_LIMIT = 200;
+
+const TIMER_ELEMENT_ID = "conscious-daily-watch-timer";
+const TIMER_STYLE_ID = "conscious-daily-watch-timer-style";
 
 const SHORTS_CONTAINER_SELECTORS = [
   "ytd-reel-shelf-renderer",
@@ -16,11 +23,16 @@ const SHORTS_CONTAINER_SELECTORS = [
 const SHORTS_LINK_SELECTOR = "a[href^='/shorts/']";
 
 let shortsDisabled = false;
+let dailyTimerEnabled = false;
 let observer = null;
+
 let activeWatchSession = null;
 let wasVideoPlaying = false;
 let lastKnownUrl = window.location.href;
 let writeQueue = Promise.resolve();
+
+let cachedDailyKey = new Date().toISOString().slice(0, 10);
+let cachedDailyWatchedSeconds = 0;
 
 function hideElement(element) {
   if (!element || element.getAttribute(HIDDEN_ATTR) === "1") return;
@@ -132,30 +144,20 @@ function getCurrentVideoTitle() {
   const heading = document.querySelector("h1.ytd-watch-metadata yt-formatted-string");
   if (heading && heading.textContent) {
     const headingTitle = heading.textContent.trim();
-    if (!isPlaceholderTitle(headingTitle)) {
-      return headingTitle;
-    }
+    if (!isPlaceholderTitle(headingTitle)) return headingTitle;
   }
 
   const playerTitle = window.ytInitialPlayerResponse?.videoDetails?.title;
-  if (!isPlaceholderTitle(playerTitle)) {
-    return String(playerTitle).trim();
-  }
+  if (!isPlaceholderTitle(playerTitle)) return String(playerTitle).trim();
 
   const ogTitle = document.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim();
-  if (!isPlaceholderTitle(ogTitle)) {
-    return ogTitle;
-  }
+  if (!isPlaceholderTitle(ogTitle)) return ogTitle;
 
   const metaTitle = document.querySelector("meta[name='title']")?.getAttribute("content")?.trim();
-  if (!isPlaceholderTitle(metaTitle)) {
-    return metaTitle;
-  }
+  if (!isPlaceholderTitle(metaTitle)) return metaTitle;
 
   const pageTitle = (document.title || "").replace(/\s*-\s*YouTube\s*$/, "").trim();
-  if (!isPlaceholderTitle(pageTitle)) {
-    return pageTitle;
-  }
+  if (!isPlaceholderTitle(pageTitle)) return pageTitle;
 
   return "";
 }
@@ -167,6 +169,36 @@ function getVideoElement() {
 function notifyHistoryUpdated() {
   chrome.runtime.sendMessage({ type: HISTORY_UPDATED_MESSAGE }, () => {
     void chrome.runtime.lastError;
+  });
+}
+
+function getCurrentDayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getDailySecondsFromHistory(history, dayKey) {
+  return history.reduce((sum, entry) => {
+    if (!entry || typeof entry !== "object") return sum;
+
+    const watchByDay = entry.watchByDay;
+    if (watchByDay && typeof watchByDay === "object") {
+      return sum + Number(watchByDay[dayKey] || 0);
+    }
+
+    const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
+    if (fallbackDay !== dayKey) return sum;
+    return sum + Number(entry.watchedSeconds || 0);
+  }, 0);
+}
+
+function refreshCachedDailyWatchSeconds() {
+  const dayKey = getCurrentDayKey();
+  cachedDailyKey = dayKey;
+
+  chrome.storage.local.get({ [HISTORY_STORAGE_KEY]: [] }, (result) => {
+    const history = Array.isArray(result[HISTORY_STORAGE_KEY]) ? result[HISTORY_STORAGE_KEY] : [];
+    cachedDailyWatchedSeconds = getDailySecondsFromHistory(history, dayKey);
+    renderDailyTimer();
   });
 }
 
@@ -234,7 +266,9 @@ function persistWatchDuration(session, force) {
     }
 
     history.sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
-    return history.slice(0, HISTORY_LIMIT);
+    const trimmed = history.slice(0, HISTORY_LIMIT);
+    cachedDailyWatchedSeconds = getDailySecondsFromHistory(trimmed, getCurrentDayKey());
+    return trimmed;
   });
 }
 
@@ -289,13 +323,120 @@ function getMediaProgressDelta(videoElement, session) {
   return rawDelta;
 }
 
+function formatTimerDuration(totalSeconds) {
+  const rounded = Math.max(0, Math.floor(totalSeconds || 0));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const seconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(1, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function ensureTimerStyles() {
+  if (document.getElementById(TIMER_STYLE_ID)) return;
+
+  const style = document.createElement("style");
+  style.id = TIMER_STYLE_ID;
+  style.textContent = `
+    #${TIMER_ELEMENT_ID} {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.14);
+      background: rgba(0, 0, 0, 0.04);
+      color: #0f0f0f;
+      font: 500 12px/16px Arial, sans-serif;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    html[dark] #${TIMER_ELEMENT_ID} {
+      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: #f1f1f1;
+    }
+  `;
+
+  document.documentElement.appendChild(style);
+}
+
+function getTimerHost() {
+  return (
+    document.querySelector("ytd-masthead #end") ||
+    document.querySelector("#end.ytd-masthead") ||
+    document.querySelector("ytd-masthead #buttons") ||
+    null
+  );
+}
+
+function getCurrentPendingDailySeconds() {
+  if (!activeWatchSession) return 0;
+  return Math.max(0, Number(activeWatchSession.pendingMilliseconds || 0) / 1000);
+}
+
+function removeDailyTimer() {
+  const node = document.getElementById(TIMER_ELEMENT_ID);
+  if (node) node.remove();
+}
+
+function renderDailyTimer() {
+  if (!dailyTimerEnabled) {
+    removeDailyTimer();
+    return;
+  }
+
+  ensureTimerStyles();
+  const host = getTimerHost();
+  if (!host) return;
+
+  let timer = document.getElementById(TIMER_ELEMENT_ID);
+  if (!timer) {
+    timer = document.createElement("div");
+    timer.id = TIMER_ELEMENT_ID;
+    host.appendChild(timer);
+  } else if (timer.parentElement !== host) {
+    host.appendChild(timer);
+  }
+
+  const totalSeconds = cachedDailyWatchedSeconds + getCurrentPendingDailySeconds();
+  timer.textContent = `Today ${formatTimerDuration(totalSeconds)}`;
+}
+
+function handleDailyTimerSettingUpdate(newValue) {
+  dailyTimerEnabled = Boolean(newValue);
+  if (!dailyTimerEnabled) {
+    removeDailyTimer();
+    return;
+  }
+
+  refreshCachedDailyWatchSeconds();
+  renderDailyTimer();
+}
+
 function updateWatchTimer() {
+  const dayKey = getCurrentDayKey();
+  if (dayKey !== cachedDailyKey) {
+    cachedDailyKey = dayKey;
+    cachedDailyWatchedSeconds = 0;
+    refreshCachedDailyWatchSeconds();
+  }
+
   if (window.location.href !== lastKnownUrl) {
     lastKnownUrl = window.location.href;
     syncWatchSessionToPage();
+    renderDailyTimer();
   }
 
-  if (!activeWatchSession) return;
+  if (!activeWatchSession) {
+    renderDailyTimer();
+    return;
+  }
 
   const refreshedTitle = getCurrentVideoTitle();
   if (!isPlaceholderTitle(refreshedTitle)) {
@@ -324,6 +465,7 @@ function updateWatchTimer() {
     if (videoElement && Number.isFinite(videoElement.currentTime)) {
       activeWatchSession.lastMediaTime = videoElement.currentTime;
     }
+    renderDailyTimer();
     return;
   }
 
@@ -338,6 +480,8 @@ function updateWatchTimer() {
   if (activeWatchSession.pendingMilliseconds >= 10000) {
     flushActiveWatchSession(false);
   }
+
+  renderDailyTimer();
 }
 
 function handleNavigationEvent() {
@@ -345,15 +489,35 @@ function handleNavigationEvent() {
   applyBlocking();
   syncWatchSessionToPage();
   lastKnownUrl = window.location.href;
+  renderDailyTimer();
 }
 
-chrome.storage.sync.get({ [SHORTS_STORAGE_KEY]: false }, (result) => {
-  handleShortsSettingUpdate(result[SHORTS_STORAGE_KEY]);
-});
+chrome.storage.sync.get(
+  {
+    [SHORTS_STORAGE_KEY]: false,
+    [DAILY_TIMER_STORAGE_KEY]: false
+  },
+  (result) => {
+    handleShortsSettingUpdate(result[SHORTS_STORAGE_KEY]);
+    handleDailyTimerSettingUpdate(result[DAILY_TIMER_STORAGE_KEY]);
+  }
+);
+
+refreshCachedDailyWatchSeconds();
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "sync" && changes[SHORTS_STORAGE_KEY]) {
-    handleShortsSettingUpdate(changes[SHORTS_STORAGE_KEY].newValue);
+  if (areaName === "sync") {
+    if (changes[SHORTS_STORAGE_KEY]) {
+      handleShortsSettingUpdate(changes[SHORTS_STORAGE_KEY].newValue);
+    }
+
+    if (changes[DAILY_TIMER_STORAGE_KEY]) {
+      handleDailyTimerSettingUpdate(changes[DAILY_TIMER_STORAGE_KEY].newValue);
+    }
+  }
+
+  if (areaName === "local" && changes[HISTORY_STORAGE_KEY]) {
+    refreshCachedDailyWatchSeconds();
   }
 });
 
@@ -391,6 +555,7 @@ window.addEventListener("beforeunload", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     flushActiveWatchSession(true);
+    renderDailyTimer();
   }
 });
 

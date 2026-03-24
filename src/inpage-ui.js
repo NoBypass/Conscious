@@ -1,5 +1,6 @@
 (() => {
   const INPAGE_SHORTS_STORAGE_KEY = "shortsDisabled";
+  const INPAGE_DAILY_TIMER_STORAGE_KEY = "dailyWatchTimerEnabled";
   const INPAGE_HISTORY_STORAGE_KEY = "watchHistory";
   const HISTORY_DISPLAY_LIMIT = 100;
   const HEATMAP_WEEKS = 52;
@@ -15,7 +16,7 @@
 
   let bootstrapTimer = null;
   let observer = null;
-  let hasLoadedShortsSnapshot = false;
+  let hasLoadedSettingsSnapshot = false;
   let hasLoadedHistorySnapshot = false;
 
   function hasExtensionContext() {
@@ -356,6 +357,17 @@
                 <span>Disable all Shorts</span>
               </label>
             </div>
+
+            <div class="conscious-toggle-row">
+              <div>
+                <h2 class="conscious-card-title">Daily timer</h2>
+                <p id="conscious-daily-timer-state" class="conscious-card-subtitle"></p>
+              </div>
+              <label class="conscious-switch">
+                <input id="conscious-daily-timer-toggle" type="checkbox" />
+                <span>Show daily top-bar timer</span>
+              </label>
+            </div>
           </div>
 
           <div class="conscious-history-card">
@@ -375,10 +387,19 @@
         </div>
       `;
       const toggle = root.querySelector("#conscious-shorts-toggle");
+      const dailyTimerToggle = root.querySelector("#conscious-daily-timer-toggle");
       if (toggle) {
         toggle.addEventListener("change", () => {
           safeChromeCall(() => {
             chrome.storage.sync.set({ [INPAGE_SHORTS_STORAGE_KEY]: toggle.checked });
+          });
+        });
+      }
+
+      if (dailyTimerToggle) {
+        dailyTimerToggle.addEventListener("change", () => {
+          safeChromeCall(() => {
+            chrome.storage.sync.set({ [INPAGE_DAILY_TIMER_STORAGE_KEY]: dailyTimerToggle.checked });
           });
         });
       }
@@ -397,22 +418,36 @@
     return root;
   }
 
-  function loadShortsState() {
+  function loadSettingsState() {
     const root = document.getElementById("conscious-page-root");
     if (!root) return;
 
     safeChromeCall(() => {
-      chrome.storage.sync.get({ [INPAGE_SHORTS_STORAGE_KEY]: false }, (result) => {
-        const isDisabled = Boolean(result[INPAGE_SHORTS_STORAGE_KEY]);
-        const checkbox = root.querySelector("#conscious-shorts-toggle");
-        const state = root.querySelector("#conscious-shorts-state");
-        if (!checkbox || !state) return;
+      chrome.storage.sync.get(
+        {
+          [INPAGE_SHORTS_STORAGE_KEY]: false,
+          [INPAGE_DAILY_TIMER_STORAGE_KEY]: false
+        },
+        (result) => {
+          const isDisabled = Boolean(result[INPAGE_SHORTS_STORAGE_KEY]);
+          const dailyTimerEnabled = Boolean(result[INPAGE_DAILY_TIMER_STORAGE_KEY]);
+          const checkbox = root.querySelector("#conscious-shorts-toggle");
+          const dailyTimerCheckbox = root.querySelector("#conscious-daily-timer-toggle");
+          const state = root.querySelector("#conscious-shorts-state");
+          const dailyTimerState = root.querySelector("#conscious-daily-timer-state");
+          if (!checkbox || !state || !dailyTimerCheckbox || !dailyTimerState) return;
 
-        checkbox.checked = isDisabled;
-        state.textContent = isDisabled
-          ? "Shorts are blocked across YouTube."
-          : "Shorts are currently allowed.";
-      });
+          checkbox.checked = isDisabled;
+          state.textContent = isDisabled
+            ? "Shorts are blocked across YouTube."
+            : "Shorts are currently allowed.";
+
+          dailyTimerCheckbox.checked = dailyTimerEnabled;
+          dailyTimerState.textContent = dailyTimerEnabled
+            ? "Daily watch timer is shown in the top bar."
+            : "Daily watch timer is hidden.";
+        }
+        );
     });
   }
 
@@ -503,9 +538,9 @@
     if (isRoute) {
       setConsciousSessionRoute(true);
 
-      if (!hasLoadedShortsSnapshot) {
-        loadShortsState();
-        hasLoadedShortsSnapshot = true;
+      if (!hasLoadedSettingsSnapshot) {
+        loadSettingsState();
+        hasLoadedSettingsSnapshot = true;
       }
 
       if (!hasLoadedHistorySnapshot) {
@@ -623,8 +658,11 @@
 
   if (hasExtensionContext()) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName === "sync" && changes[INPAGE_SHORTS_STORAGE_KEY]) {
-        loadShortsState();
+      if (
+        areaName === "sync" &&
+        (changes[INPAGE_SHORTS_STORAGE_KEY] || changes[INPAGE_DAILY_TIMER_STORAGE_KEY])
+      ) {
+        loadSettingsState();
       }
     });
   }
