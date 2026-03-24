@@ -14,6 +14,9 @@
   const CONSCIOUS_SESSION_ROUTE_KEY = "consciousRouteActive";
   const HEATMAP_TOOLTIP_OFFSET = 12;
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const GRAPH_BUCKET_MINUTES = 15;
+  const GRAPH_BUCKET_COUNT = (24 * 60) / GRAPH_BUCKET_MINUTES;
+  const SVG_NS = "http://www.w3.org/2000/svg";
 
   let bootstrapTimer = null;
   let observer = null;
@@ -111,6 +114,14 @@
     return `${seconds}s`;
   }
 
+  function formatDurationCompact(totalSeconds) {
+    const rounded = Math.max(0, Math.round(totalSeconds || 0));
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  }
+
   function formatLastWatched(isoDate) {
     const date = new Date(isoDate);
     if (Number.isNaN(date.getTime())) return "Unknown time";
@@ -190,6 +201,112 @@
     }
 
     return keys;
+  }
+
+  function getBucketIndexFromDate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
+    const totalMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+    return Math.max(0, Math.min(GRAPH_BUCKET_COUNT - 1, Math.floor(totalMinutes / GRAPH_BUCKET_MINUTES)));
+  }
+
+  function getBucketLabel(bucketIndex) {
+    const clamped = Math.max(0, Math.min(GRAPH_BUCKET_COUNT, bucketIndex));
+    const minutes = clamped * GRAPH_BUCKET_MINUTES;
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+
+  function getUtcDayStartMs(dayKey) {
+    const date = parseUtcDateKey(dayKey);
+    if (Number.isNaN(date.getTime())) return NaN;
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
+
+  function getDaysOnRecord(dayKeys) {
+    if (!dayKeys.length) return 0;
+    const earliest = dayKeys.reduce((minKey, key) => (key < minKey ? key : minKey), dayKeys[0]);
+    const startMs = getUtcDayStartMs(earliest);
+    if (!Number.isFinite(startMs)) return 0;
+
+    const now = new Date();
+    const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    if (todayStartMs < startMs) return 0;
+    return Math.floor((todayStartMs - startMs) / DAY_MS) + 1;
+  }
+
+  function createBucketSeries() {
+    return Array.from({ length: GRAPH_BUCKET_COUNT }, () => 0);
+  }
+
+  function buildTimelineByDay(history) {
+    const timelineByDay = new Map();
+
+    const ensureDaySeries = (dayKey) => {
+      if (!timelineByDay.has(dayKey)) timelineByDay.set(dayKey, createBucketSeries());
+      return timelineByDay.get(dayKey);
+    };
+
+    history.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+
+      const timeline = entry.timelineByDay;
+      let hasTimeline = false;
+
+      if (timeline && typeof timeline === "object") {
+        Object.entries(timeline).forEach(([dayKey, buckets]) => {
+          if (!dayKey || !buckets || typeof buckets !== "object") return;
+          hasTimeline = true;
+          const daySeries = ensureDaySeries(dayKey);
+
+          Object.entries(buckets).forEach(([bucketRaw, secondsRaw]) => {
+            const bucket = Number(bucketRaw);
+            const seconds = Number(secondsRaw || 0);
+            if (!Number.isFinite(bucket) || bucket < 0 || bucket >= GRAPH_BUCKET_COUNT || seconds <= 0) return;
+            daySeries[bucket] += seconds;
+          });
+        });
+      }
+
+      if (hasTimeline) return;
+
+      const watchByDay = entry.watchByDay && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
+      if (watchByDay && Object.keys(watchByDay).length > 0) {
+        Object.entries(watchByDay).forEach(([dayKey, secondsRaw]) => {
+          const seconds = Number(secondsRaw || 0);
+          if (!dayKey || seconds <= 0) return;
+          // Legacy entries do not have intraday buckets, so place them at noon as a neutral fallback.
+          ensureDaySeries(dayKey)[Math.floor(GRAPH_BUCKET_COUNT / 2)] += seconds;
+        });
+        return;
+      }
+
+      const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
+      const fallbackSeconds = Number(entry.watchedSeconds || 0);
+      if (!fallbackDay || fallbackSeconds <= 0) return;
+
+      const fallbackDate = new Date(entry.lastWatchedAt || `${fallbackDay}T12:00:00Z`);
+      const bucket = getBucketIndexFromDate(fallbackDate);
+      ensureDaySeries(fallbackDay)[bucket] += fallbackSeconds;
+    });
+
+    return timelineByDay;
+  }
+
+  function buildCumulativeSeries(series) {
+    let running = 0;
+    return series.map((value) => {
+      running += Number(value || 0);
+      return running;
+    });
+  }
+
+  function createSvgElement(tagName, attributes) {
+    const element = document.createElementNS(SVG_NS, tagName);
+    Object.entries(attributes || {}).forEach(([key, value]) => {
+      element.setAttribute(key, String(value));
+    });
+    return element;
   }
 
   function renderHeatmap(history) {
@@ -382,6 +499,46 @@
             </div>
           </div>
 
+          <div class="conscious-history-card conscious-stats-card">
+            <div class="conscious-heatmap-header">
+              <h2 class="conscious-card-title">Statistics</h2>
+              <p id="conscious-stats-range" class="conscious-card-subtitle"></p>
+            </div>
+            <div class="conscious-stats-grid" role="list" aria-label="Watch statistics">
+              <article class="conscious-stat-block" role="listitem">
+                <p class="conscious-stat-label">Videos watched</p>
+                <p id="conscious-stat-total-videos" class="conscious-stat-value">0</p>
+              </article>
+              <article class="conscious-stat-block" role="listitem">
+                <p class="conscious-stat-label">Time watched</p>
+                <p id="conscious-stat-total-time" class="conscious-stat-value">0m</p>
+              </article>
+              <article class="conscious-stat-block" role="listitem">
+                <p class="conscious-stat-label">Avg per day</p>
+                <p id="conscious-stat-avg-day" class="conscious-stat-value">0m</p>
+              </article>
+            </div>
+
+            <div class="conscious-day-trend">
+              <div class="conscious-heatmap-header conscious-day-trend-header">
+                <h3 class="conscious-card-title">Today vs average day</h3>
+                <p id="conscious-day-trend-subtitle" class="conscious-card-subtitle"></p>
+              </div>
+              <svg
+                id="conscious-day-trend-svg"
+                class="conscious-day-trend-svg"
+                role="img"
+                aria-label="Cumulative watch-time trend"
+                preserveAspectRatio="none"
+              ></svg>
+              <p id="conscious-day-trend-empty" class="conscious-empty" hidden>No watch-time curve yet.</p>
+              <div class="conscious-day-trend-legend" aria-hidden="true">
+                <span class="conscious-day-trend-legend-item conscious-day-trend-legend-average">Average day</span>
+                <span class="conscious-day-trend-legend-item conscious-day-trend-legend-today">Today</span>
+              </div>
+            </div>
+          </div>
+
           <div class="conscious-history-card">
             <div class="conscious-heatmap-header">
               <h2 class="conscious-card-title">Watch history</h2>
@@ -492,6 +649,194 @@
     });
   }
 
+  function renderDayTrendGraph(history) {
+    const root = document.getElementById("conscious-page-root");
+    if (!root) return;
+
+    const svg = root.querySelector("#conscious-day-trend-svg");
+    const empty = root.querySelector("#conscious-day-trend-empty");
+    const subtext = root.querySelector("#conscious-day-trend-subtitle");
+    if (!svg || !empty || !subtext) return;
+
+    const dailySummary = buildDailyWatchSummary(history);
+    const timelineByDay = buildTimelineByDay(history);
+    const recordDayKeys = Array.from(dailySummary.keys());
+    const daysOnRecord = getDaysOnRecord(recordDayKeys);
+    const now = new Date();
+    const todayKey = getUtcDateKey(now);
+    const todayBucket = getBucketIndexFromDate(now);
+
+    const averageBaseSeries = createBucketSeries();
+    if (daysOnRecord > 0) {
+      const earliest = recordDayKeys.reduce((minKey, key) => (key < minKey ? key : minKey), recordDayKeys[0]);
+      const earliestStartMs = getUtcDayStartMs(earliest);
+      if (Number.isFinite(earliestStartMs)) {
+        for (let dayOffset = 0; dayOffset < daysOnRecord; dayOffset += 1) {
+          const dayMs = earliestStartMs + dayOffset * DAY_MS;
+          const dayKey = getUtcDateKey(new Date(dayMs));
+          const daySeries = timelineByDay.get(dayKey);
+          if (!daySeries) continue;
+          for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
+            averageBaseSeries[index] += Number(daySeries[index] || 0);
+          }
+        }
+      }
+
+      for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
+        averageBaseSeries[index] /= daysOnRecord;
+      }
+    }
+
+    const todaySeries = timelineByDay.get(todayKey) || createBucketSeries();
+    const todayCumulative = buildCumulativeSeries(todaySeries);
+    const averageCumulative = buildCumulativeSeries(averageBaseSeries);
+
+    const maxValue = Math.max(
+      1,
+      ...todayCumulative,
+      ...averageCumulative
+    );
+
+    const hasAnyData = recordDayKeys.length > 0 && (todayCumulative.some((v) => v > 0) || averageCumulative.some((v) => v > 0));
+
+    svg.innerHTML = "";
+    if (!hasAnyData) {
+      empty.hidden = false;
+      subtext.textContent = "Graph will appear once watch-time history accumulates.";
+      return;
+    }
+
+    empty.hidden = true;
+    subtext.textContent = `Today vs average day over ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`;
+
+    const width = 760;
+    const height = 220;
+    const paddingLeft = 44;
+    const paddingRight = 12;
+    const paddingTop = 12;
+    const paddingBottom = 28;
+    const plotWidth = width - paddingLeft - paddingRight;
+    const plotHeight = height - paddingTop - paddingBottom;
+    const pointsCount = GRAPH_BUCKET_COUNT - 1;
+
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+    const xForIndex = (index) => paddingLeft + (index / pointsCount) * plotWidth;
+    const yForValue = (value) => paddingTop + (1 - value / maxValue) * plotHeight;
+
+    const xAxis = createSvgElement("line", {
+      x1: paddingLeft,
+      y1: paddingTop + plotHeight,
+      x2: paddingLeft + plotWidth,
+      y2: paddingTop + plotHeight,
+      class: "conscious-trend-axis"
+    });
+    const yAxis = createSvgElement("line", {
+      x1: paddingLeft,
+      y1: paddingTop,
+      x2: paddingLeft,
+      y2: paddingTop + plotHeight,
+      class: "conscious-trend-axis"
+    });
+    svg.appendChild(xAxis);
+    svg.appendChild(yAxis);
+
+    const avgPoints = averageCumulative
+      .map((value, index) => `${xForIndex(index)},${yForValue(value)}`)
+      .join(" ");
+    const avgLine = createSvgElement("polyline", {
+      points: avgPoints,
+      class: "conscious-trend-line conscious-trend-line-average"
+    });
+    svg.appendChild(avgLine);
+
+    const todayPoints = [];
+    for (let index = 0; index < GRAPH_BUCKET_COUNT; index += 1) {
+      if (index > todayBucket) break;
+      todayPoints.push(`${xForIndex(index)},${yForValue(todayCumulative[index])}`);
+    }
+
+    const todayLine = createSvgElement("polyline", {
+      points: todayPoints.join(" "),
+      class: "conscious-trend-line conscious-trend-line-today"
+    });
+    svg.appendChild(todayLine);
+
+    const nowMarker = createSvgElement("line", {
+      x1: xForIndex(todayBucket),
+      y1: paddingTop,
+      x2: xForIndex(todayBucket),
+      y2: paddingTop + plotHeight,
+      class: "conscious-trend-now-marker"
+    });
+    svg.appendChild(nowMarker);
+
+    [0, 24, 48, 72, 96].forEach((bucketIndex) => {
+      const x = xForIndex(Math.min(pointsCount, bucketIndex));
+      const label = createSvgElement("text", {
+        x,
+        y: height - 8,
+        class: "conscious-trend-axis-label",
+        "text-anchor": bucketIndex === 0 ? "start" : bucketIndex === 96 ? "end" : "middle"
+      });
+      label.textContent = getBucketLabel(bucketIndex);
+      svg.appendChild(label);
+    });
+
+    const yTop = createSvgElement("text", {
+      x: paddingLeft - 6,
+      y: paddingTop + 10,
+      class: "conscious-trend-axis-label",
+      "text-anchor": "end"
+    });
+    yTop.textContent = formatDurationCompact(maxValue);
+    svg.appendChild(yTop);
+
+    const yBottom = createSvgElement("text", {
+      x: paddingLeft - 6,
+      y: paddingTop + plotHeight,
+      class: "conscious-trend-axis-label",
+      "text-anchor": "end"
+    });
+    yBottom.textContent = "0m";
+    svg.appendChild(yBottom);
+
+    svg.setAttribute(
+      "aria-label",
+      `Today cumulative watch time is ${formatDuration(todayCumulative[todayBucket] || 0)} by ${getBucketLabel(todayBucket)}. Average full-day total is ${formatDuration(averageCumulative[averageCumulative.length - 1] || 0)}.`
+    );
+  }
+
+  function renderStats(history) {
+    const root = document.getElementById("conscious-page-root");
+    if (!root) return;
+
+    const totalVideosEl = root.querySelector("#conscious-stat-total-videos");
+    const totalTimeEl = root.querySelector("#conscious-stat-total-time");
+    const avgPerDayEl = root.querySelector("#conscious-stat-avg-day");
+    const rangeEl = root.querySelector("#conscious-stats-range");
+    if (!totalVideosEl || !totalTimeEl || !avgPerDayEl || !rangeEl) return;
+
+    const totalVideos = history.reduce((count, entry) => {
+      const watchedSeconds = Number(entry?.watchedSeconds || 0);
+      return count + (watchedSeconds > 0 ? 1 : 0);
+    }, 0);
+
+    const totalSeconds = history.reduce((sum, entry) => sum + Number(entry?.watchedSeconds || 0), 0);
+    const dailySummary = buildDailyWatchSummary(history);
+    const daysOnRecord = getDaysOnRecord(Array.from(dailySummary.keys()));
+    const averagePerDay = daysOnRecord > 0 ? totalSeconds / daysOnRecord : 0;
+
+    totalVideosEl.textContent = new Intl.NumberFormat().format(totalVideos);
+    totalTimeEl.textContent = formatDuration(totalSeconds);
+    avgPerDayEl.textContent = formatDurationCompact(averagePerDay);
+    rangeEl.textContent = daysOnRecord > 0
+      ? `Based on ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`
+      : "No history on record yet.";
+
+    renderDayTrendGraph(history);
+  }
+
   function renderHistory(history) {
     const root = document.getElementById("conscious-page-root");
     if (!root) return;
@@ -500,6 +845,7 @@
     const empty = root.querySelector("#conscious-history-empty");
     if (!list || !empty) return;
 
+    renderStats(history);
     renderHeatmap(history);
 
     list.innerHTML = "";
@@ -713,6 +1059,10 @@
         )
       ) {
         loadSettingsState();
+      }
+
+      if (areaName === "local" && changes[INPAGE_HISTORY_STORAGE_KEY] && isConsciousRoute()) {
+        loadHistory();
       }
     });
   }
