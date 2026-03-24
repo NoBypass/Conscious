@@ -4,6 +4,8 @@
   const { formatDuration, formatDurationCompact, formatLastWatched, formatDateKeyForTooltip } = app.domain.shared;
   const metrics = app.domain.metrics;
   const youtubeDom = app.adapters.youtubeInpage;
+  let latestHistory = [];
+  let selectedHeatmapDayKey = null;
 
   const ensurePageRoot = (onToggleChange) => {
     let root = document.getElementById("conscious-page-root");
@@ -174,7 +176,36 @@
       : "Voice search and Create buttons are visible.";
   };
 
-  const renderHistory = (history) => {
+  const getEntryWatchedSecondsForDay = (entry, dayKey) => {
+    if (!entry || !dayKey) return 0;
+
+    const watchByDay = entry.watchByDay && typeof entry.watchByDay === "object" ? entry.watchByDay : null;
+    if (watchByDay && Object.prototype.hasOwnProperty.call(watchByDay, dayKey)) {
+      return Number(watchByDay[dayKey] || 0);
+    }
+
+    const fallbackDay = String(entry.lastWatchedAt || "").slice(0, 10);
+    if (fallbackDay !== dayKey) return 0;
+    return Number(entry.watchedSeconds || 0);
+  };
+
+  const buildHistoryListEntries = (history) => {
+    if (!selectedHeatmapDayKey) {
+      return history.slice(0, config.historyDisplayLimit).map((entry) => ({
+        entry,
+        watchedSecondsForDisplay: Number(entry?.watchedSeconds || 0)
+      }));
+    }
+
+    return history
+      .map((entry) => ({
+        entry,
+        watchedSecondsForDisplay: getEntryWatchedSecondsForDay(entry, selectedHeatmapDayKey)
+      }))
+      .filter(({ watchedSecondsForDisplay }) => watchedSecondsForDisplay > 0);
+  };
+
+  const renderHistoryList = (history) => {
     const root = document.getElementById("conscious-page-root");
     if (!root) return;
 
@@ -182,19 +213,21 @@
     const empty = root.querySelector("#conscious-history-empty");
     if (!list || !empty) return;
 
-    renderStats(history);
-    renderHeatmap(history);
-
+    const rows = buildHistoryListEntries(history);
     list.innerHTML = "";
-    if (!history.length) {
+
+    if (!rows.length) {
       empty.hidden = false;
+      empty.textContent = selectedHeatmapDayKey
+        ? `No watch activity on ${formatDateKeyForTooltip(selectedHeatmapDayKey)} yet. Click the selected day again to show all videos.`
+        : "No watch history yet.";
       return;
     }
 
     empty.hidden = true;
     const fragment = document.createDocumentFragment();
 
-    history.slice(0, config.historyDisplayLimit).forEach((entry) => {
+    rows.forEach(({ entry, watchedSecondsForDisplay }) => {
       const item = document.createElement("li");
       item.className = "conscious-history-item";
 
@@ -205,7 +238,9 @@
 
       const meta = document.createElement("div");
       meta.className = "conscious-history-meta";
-      meta.textContent = `${formatDuration(entry.watchedSeconds)} watched - ${formatLastWatched(entry.lastWatchedAt)}`;
+      meta.textContent = selectedHeatmapDayKey
+        ? `${formatDuration(watchedSecondsForDisplay)} watched that day - ${formatLastWatched(entry.lastWatchedAt)}`
+        : `${formatDuration(watchedSecondsForDisplay)} watched - ${formatLastWatched(entry.lastWatchedAt)}`;
 
       item.appendChild(link);
       item.appendChild(meta);
@@ -213,6 +248,24 @@
     });
 
     list.appendChild(fragment);
+  };
+
+  const renderHistory = (history) => {
+    const root = document.getElementById("conscious-page-root");
+    if (!root) return;
+
+    latestHistory = Array.isArray(history) ? history : [];
+
+    if (selectedHeatmapDayKey) {
+      const hasEntriesOnSelectedDay = latestHistory.some(
+        (entry) => getEntryWatchedSecondsForDay(entry, selectedHeatmapDayKey) > 0
+      );
+      if (!hasEntriesOnSelectedDay) selectedHeatmapDayKey = null;
+    }
+
+    renderStats(latestHistory);
+    renderHeatmap(latestHistory);
+    renderHistoryList(latestHistory);
   };
 
   const renderStats = (history) => {
@@ -344,9 +397,12 @@
       const cell = document.createElement("div");
       cell.className = "conscious-heatmap-cell";
       cell.dataset.level = String(level);
+      cell.classList.toggle("is-selected", dayKey === selectedHeatmapDayKey);
       cell.style.gridColumn = String(weekIndex + 1);
       cell.style.gridRow = String(weekday + 1);
       cell.setAttribute("role", "gridcell");
+      cell.setAttribute("tabindex", "0");
+      cell.setAttribute("aria-selected", dayKey === selectedHeatmapDayKey ? "true" : "false");
       cell.setAttribute(
         "aria-label",
         `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`
@@ -354,6 +410,18 @@
       cell.addEventListener("mouseenter", (event) => showTooltip(event, dayKey, watchedSeconds, videoCount));
       cell.addEventListener("mousemove", (event) => showTooltip(event, dayKey, watchedSeconds, videoCount));
       cell.addEventListener("mouseleave", hideTooltip);
+      cell.addEventListener("click", () => {
+        selectedHeatmapDayKey = selectedHeatmapDayKey === dayKey ? null : dayKey;
+        renderHeatmap(latestHistory);
+        renderHistoryList(latestHistory);
+      });
+      cell.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        selectedHeatmapDayKey = selectedHeatmapDayKey === dayKey ? null : dayKey;
+        renderHeatmap(latestHistory);
+        renderHistoryList(latestHistory);
+      });
 
       fragment.appendChild(cell);
     });

@@ -376,6 +376,20 @@
   aspect-ratio: 1 / 1;
   border-radius: 3px;
   background: rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.conscious-heatmap-cell:focus-visible {
+  outline: 2px solid rgba(255, 0, 0, 0.55);
+  outline-offset: 1px;
+}
+
+.conscious-heatmap-cell.is-selected {
+  box-shadow:
+    0 0 0 1px rgba(255, 0, 0, 0.8) inset,
+    0 0 10px rgba(255, 0, 0, 0.8),
+    0 0 20px rgba(255, 0, 0, 0.5);
 }
 
 .conscious-heatmap-cell[data-level="1"] {
@@ -445,6 +459,7 @@ html[dark] .conscious-card-subtitle,
 html[dark] .conscious-history-meta,
 html[dark] .conscious-empty {
   color: #aaaaaa;
+  margin-top: 16px;
 }
 
 html[dark] .conscious-page-header,
@@ -526,7 +541,6 @@ html[dark] .conscious-heatmap-grid {
 }
 
 html[dark] .conscious-heatmap-cell {
-  border-color: rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.12);
 }
 
@@ -544,12 +558,6 @@ html[dark] .conscious-heatmap-cell[data-level="3"] {
 
 html[dark] .conscious-heatmap-cell[data-level="4"] {
   background: rgba(255, 77, 79, 0.95);
-}
-
-html[dark] .conscious-heatmap-tooltip {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(18, 18, 18, 0.98);
-  color: #f1f1f1;
 }
 
 ytd-browse[page-subtype='history'][data-conscious-native-hidden='1'] > :not(#conscious-page-root) {
