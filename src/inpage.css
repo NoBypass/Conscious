@@ -107,7 +107,7 @@
 .conscious-settings-card .conscious-toggle-row + .conscious-toggle-row {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid #606060;
 }
 
 .conscious-card-title {

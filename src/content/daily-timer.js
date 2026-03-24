@@ -26,9 +26,8 @@
         align-items: center;
         justify-content: center;
         margin-left: 8px;
-        padding: 6px 10px;
+        padding: 10px 14px;
         border-radius: 999px;
-        border: 1px solid rgba(0, 0, 0, 0.14);
         background: rgba(0, 0, 0, 0.04);
         color: #0f0f0f;
         font: 500 12px/16px Arial, sans-serif;
