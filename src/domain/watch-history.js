@@ -1,91 +1,9 @@
 (() => {
   const app = window.Conscious;
   const { config } = app;
+  const watchHistory = app.domain.watchHistory || (app.domain.watchHistory = {});
 
   const GRAPH_BUCKET_COUNT = config.graphBucketCount;
-
-  const getCurrentVideoId = () => {
-    if (window.location.pathname !== "/watch") return null;
-    const value = new URLSearchParams(window.location.search).get("v");
-    return value || null;
-  };
-
-  const isPlaceholderTitle = (value) => {
-    const normalized = String(value || "").trim().toLowerCase();
-    return !normalized || normalized === "youtube" || normalized === "unknown title";
-  };
-
-  const getCurrentVideoTitle = () => {
-    const heading = document.querySelector("h1.ytd-watch-metadata yt-formatted-string");
-    if (heading && heading.textContent) {
-      const headingTitle = heading.textContent.trim();
-      if (!isPlaceholderTitle(headingTitle)) return headingTitle;
-    }
-
-    const playerTitle = window.ytInitialPlayerResponse?.videoDetails?.title;
-    if (!isPlaceholderTitle(playerTitle)) return String(playerTitle).trim();
-
-    const ogTitle = document.querySelector("meta[property='og:title']")?.getAttribute("content")?.trim();
-    if (!isPlaceholderTitle(ogTitle)) return ogTitle;
-
-    const metaTitle = document.querySelector("meta[name='title']")?.getAttribute("content")?.trim();
-    if (!isPlaceholderTitle(metaTitle)) return metaTitle;
-
-    const pageTitle = (document.title || "").replace(/\s*-\s*YouTube\s*$/, "").trim();
-    if (!isPlaceholderTitle(pageTitle)) return pageTitle;
-
-    return "";
-  };
-
-  const getDayKeyFromTimestamp = (timestampMs) => new Date(timestampMs).toISOString().slice(0, 10);
-
-  const getBucketIndexFromTimestamp = (timestampMs) => {
-    const date = new Date(timestampMs);
-    if (Number.isNaN(date.getTime())) return 0;
-    const totalMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
-    return Math.max(0, Math.min(GRAPH_BUCKET_COUNT - 1, Math.floor(totalMinutes / config.graphBucketMinutes)));
-  };
-
-  const addPendingTimelineMilliseconds = (session, timestampMs, milliseconds) => {
-    if (!session || milliseconds <= 0) return;
-
-    const dayKey = getDayKeyFromTimestamp(timestampMs);
-    const bucketIndex = getBucketIndexFromTimestamp(timestampMs);
-
-    if (!session.pendingTimelineByDayMs || typeof session.pendingTimelineByDayMs !== "object") {
-      session.pendingTimelineByDayMs = {};
-    }
-
-    if (!session.pendingTimelineByDayMs[dayKey] || typeof session.pendingTimelineByDayMs[dayKey] !== "object") {
-      session.pendingTimelineByDayMs[dayKey] = {};
-    }
-
-    session.pendingTimelineByDayMs[dayKey][bucketIndex] =
-      Number(session.pendingTimelineByDayMs[dayKey][bucketIndex] || 0) + milliseconds;
-  };
-
-  const mergePendingTimeline = (target, source) => {
-    if (!source || typeof source !== "object") return;
-
-    if (!target.pendingTimelineByDayMs || typeof target.pendingTimelineByDayMs !== "object") {
-      target.pendingTimelineByDayMs = {};
-    }
-
-    Object.entries(source).forEach(([dayKey, buckets]) => {
-      if (!dayKey || !buckets || typeof buckets !== "object") return;
-
-      if (!target.pendingTimelineByDayMs[dayKey] || typeof target.pendingTimelineByDayMs[dayKey] !== "object") {
-        target.pendingTimelineByDayMs[dayKey] = {};
-      }
-
-      Object.entries(buckets).forEach(([bucketKey, bucketMsRaw]) => {
-        const bucketMs = Number(bucketMsRaw || 0);
-        if (bucketMs <= 0) return;
-        target.pendingTimelineByDayMs[dayKey][bucketKey] =
-          Number(target.pendingTimelineByDayMs[dayKey][bucketKey] || 0) + bucketMs;
-      });
-    });
-  };
 
   const createRecordingSessionId = (videoId) => {
     const base = String(videoId || "video").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "video";
@@ -270,28 +188,6 @@
     return { history: migrated, didMigrate };
   };
 
-  const getMediaProgressDelta = (videoElement, session, elapsedSeconds) => {
-    if (!videoElement || !session || !Number.isFinite(videoElement.currentTime)) return 0;
-
-    const rawDelta = videoElement.currentTime - Number(session.lastMediaTime || 0);
-    session.lastMediaTime = videoElement.currentTime;
-
-    if (rawDelta <= 0) return 0;
-
-    const elapsed = Number(elapsedSeconds || 0);
-    if (elapsed > 0) {
-      const playbackRate = Math.max(0.25, Number(videoElement.playbackRate || 1));
-      // Allow normal drift around expected progress (including faster playback rates),
-      // while still rejecting large seek jumps.
-      const expectedProgress = elapsed * playbackRate;
-      const maxExpectedDelta = Math.max(2.5, expectedProgress * 2.2 + 0.8);
-      if (rawDelta > maxExpectedDelta) return -1;
-    }
-
-    if (rawDelta > 30) return -1;
-    return rawDelta;
-  };
-
   const createSession = (videoId, title, url, mediaTime) => ({
     videoId,
     title,
@@ -430,16 +326,9 @@
     return history;
   };
 
-  app.domain.watchHistory = {
-    getCurrentVideoId,
-    getCurrentVideoTitle,
-    addPendingTimelineMilliseconds,
-    mergePendingTimeline,
-    getMediaProgressDelta,
-    createSession,
-    rotateRecordingSession,
-    rebuildEntryAggregatesFromSessions,
-    migrateHistory,
-    mergeSessionIntoHistory
-  };
+  watchHistory.createSession = createSession;
+  watchHistory.rotateRecordingSession = rotateRecordingSession;
+  watchHistory.rebuildEntryAggregatesFromSessions = rebuildEntryAggregatesFromSessions;
+  watchHistory.migrateHistory = migrateHistory;
+  watchHistory.mergeSessionIntoHistory = mergeSessionIntoHistory;
 })();

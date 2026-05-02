@@ -53,6 +53,13 @@ This project now follows a layered structure to keep behavior loosely coupled an
 - `src/entry/inpage-script.js`: in-page runtime entrypoint.
 - `src/inpage.css`: YouTube-style page and sidebar styles.
 - `scripts/validate.mjs`: local validation script.
+- `src/domain/watch-history/video-details.js`: watch-page video id/title detection.
+- `src/domain/watch-history/timeline.js`: pending timeline accumulation helpers.
+- `src/domain/watch-history/media-progress.js`: media progress delta heuristics.
+- `src/application/content/shorts-blocker.js`: shorts blocking behavior.
+- `src/application/content/header-declutter.js`: header declutter behavior.
+- `src/application/content/daily-timer.js`: daily timer rendering.
+- `src/application/content/watch-session.js`: watch-session tracking and persistence.
 
 ## Load in Chrome
 
