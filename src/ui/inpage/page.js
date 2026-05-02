@@ -7,6 +7,18 @@
   let latestHistory = [];
   let selectedHeatmapDayKey = null;
 
+  const historyThumbnailPlaceholder = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="Video thumbnail unavailable">
+      <rect width="320" height="180" rx="18" fill="#d9d9d9"/>
+      <path d="M141 68l58 32-58 32z" fill="#8a8a8a"/>
+    </svg>
+  `)}`;
+
+  const getHistoryThumbnailUrl = (videoId) => {
+    const safeVideoId = String(videoId || "").trim();
+    return safeVideoId ? `https://i.ytimg.com/vi/${encodeURIComponent(safeVideoId)}/mqdefault.jpg` : "";
+  };
+
   const ensurePageRoot = (onToggleChange) => {
     let root = document.getElementById("conscious-page-root");
     if (!root) {
@@ -227,6 +239,35 @@
       const item = document.createElement("li");
       item.className = "conscious-history-item";
 
+      const thumbnail = document.createElement("div");
+      thumbnail.className = "conscious-history-thumbnail";
+      thumbnail.setAttribute("aria-hidden", "true");
+
+      if (entry.videoId) {
+        const img = document.createElement("img");
+        img.className = "conscious-history-thumbnail-image";
+        img.alt = "";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.referrerPolicy = "no-referrer";
+        img.src = getHistoryThumbnailUrl(entry.videoId);
+        img.onerror = () => {
+          img.onerror = null;
+          img.src = historyThumbnailPlaceholder;
+          img.classList.add("is-fallback");
+        };
+        thumbnail.appendChild(img);
+      } else {
+        thumbnail.classList.add("is-placeholder");
+        const placeholder = document.createElement("span");
+        placeholder.className = "conscious-history-thumbnail-placeholder";
+        placeholder.textContent = "No preview";
+        thumbnail.appendChild(placeholder);
+      }
+
+      const content = document.createElement("div");
+      content.className = "conscious-history-content";
+
       const link = document.createElement("a");
       link.className = "conscious-history-link";
       link.href = entry.url || `https://www.youtube.com/watch?v=${entry.videoId || ""}`;
@@ -238,8 +279,10 @@
         ? `${formatDuration(watchedSecondsForDisplay)} watched that day - ${formatLastWatched(entry.lastWatchedAt)}`
         : `${formatDuration(watchedSecondsForDisplay)} watched - ${formatLastWatched(entry.lastWatchedAt)}`;
 
-      item.appendChild(link);
-      item.appendChild(meta);
+      content.appendChild(link);
+      content.appendChild(meta);
+      item.appendChild(thumbnail);
+      item.appendChild(content);
       fragment.appendChild(item);
     });
 
@@ -329,7 +372,7 @@
       tooltip.innerHTML = `
         <div class="conscious-heatmap-tooltip-title">${formatDateKeyForTooltip(dayKey)}</div>
         <div class="conscious-heatmap-tooltip-line">${formatDuration(watchedSeconds)} watched</div>
-        <div class="conscious-heatmap-tooltip-line">${videoCount} video${videoCount === 1 ? "" : "s"}</div>
+        <div class="conscious-heatmap-tooltip-line">${videoCount} video${videoCount === 1 ? "s" : ""}</div>
       `;
 
       const viewportWidth = window.innerWidth;
@@ -398,35 +441,57 @@
       cell.style.gridRow = String(weekday + 1);
       cell.setAttribute("role", "gridcell");
       cell.setAttribute("tabindex", "0");
-      cell.setAttribute("aria-selected", dayKey === selectedHeatmapDayKey ? "true" : "false");
-      cell.setAttribute(
-        "aria-label",
-        `${formatDateKeyForTooltip(dayKey)}: ${formatDuration(watchedSeconds)} watched across ${videoCount} video${videoCount === 1 ? "" : "s"}`
-      );
-      cell.addEventListener("mouseenter", (event) => showTooltip(event, dayKey, watchedSeconds, videoCount));
-      cell.addEventListener("mousemove", (event) => showTooltip(event, dayKey, watchedSeconds, videoCount));
-      cell.addEventListener("mouseleave", hideTooltip);
-      cell.addEventListener("click", () => {
+
+      const activate = (event) => {
+        if (!watchedSeconds) return;
         selectedHeatmapDayKey = selectedHeatmapDayKey === dayKey ? null : dayKey;
-        renderHeatmap(latestHistory);
-        renderHistoryList(latestHistory);
+        renderHistory(latestHistory);
+        if (selectedHeatmapDayKey) {
+          showTooltip(event, dayKey, watchedSeconds, videoCount);
+        } else {
+          hideTooltip();
+        }
+      };
+
+      cell.addEventListener("mouseenter", (event) => {
+        if (selectedHeatmapDayKey === dayKey) return;
+        if (!watchedSeconds) return;
+        showTooltip(event, dayKey, watchedSeconds, videoCount);
       });
+
+      cell.addEventListener("mousemove", (event) => {
+        if (selectedHeatmapDayKey === dayKey) return;
+        if (!watchedSeconds) return;
+        showTooltip(event, dayKey, watchedSeconds, videoCount);
+      });
+
+      cell.addEventListener("mouseleave", () => {
+        if (selectedHeatmapDayKey === dayKey) return;
+        hideTooltip();
+      });
+
+      cell.addEventListener("click", activate);
       cell.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        selectedHeatmapDayKey = selectedHeatmapDayKey === dayKey ? null : dayKey;
-        renderHeatmap(latestHistory);
-        renderHistoryList(latestHistory);
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activate(event);
+        }
       });
 
       fragment.appendChild(cell);
     });
 
     grid.appendChild(fragment);
-    grid.onmouseleave = hideTooltip;
 
-    const activeDays = dayKeys.reduce((count, dayKey) => count + (daily.has(dayKey) ? 1 : 0), 0);
-    summary.textContent = `${formatDuration(totalSecondsInRange)} watched in the last ${config.heatmapWeeks} weeks across ${activeDays} active day${activeDays === 1 ? "" : "s"}.`;
+    const visibleDays = dayKeys.filter((dayKey) => {
+      const bucket = daily.get(dayKey);
+      return Number(bucket?.watchedSeconds || 0) > 0;
+    }).length;
+    const selectedLabel = selectedHeatmapDayKey ? `Selected ${formatDateKeyForTooltip(selectedHeatmapDayKey)}.` : "";
+    summary.textContent =
+      visibleDays > 0
+        ? `${visibleDays} active day${visibleDays === 1 ? "" : "s"} in the last ${config.heatmapWeeks} weeks. ${selectedLabel}`.trim()
+        : `No recorded watch activity in the last ${config.heatmapWeeks} weeks.`;
   };
 
   const renderDayTrendGraph = (history) => {
@@ -436,8 +501,8 @@
     const svg = root.querySelector("#conscious-day-trend-svg");
     const tooltip = root.querySelector("#conscious-day-trend-tooltip");
     const empty = root.querySelector("#conscious-day-trend-empty");
-    const subtext = root.querySelector("#conscious-day-trend-subtitle");
-    if (!svg || !tooltip || !empty || !subtext) return;
+    const subtitle = root.querySelector("#conscious-day-trend-subtitle");
+    if (!svg || !tooltip || !empty || !subtitle) return;
 
     const dailySummary = metrics.buildDailyWatchSummary(history);
     const timelineByDay = metrics.buildTimelineByDay(history);
@@ -481,14 +546,14 @@
     tooltip.hidden = true;
     if (!hasAnyData) {
       empty.hidden = false;
-      subtext.textContent = "Graph will appear once watch-time history accumulates.";
+      subtitle.textContent = "Graph will appear once watch-time history accumulates.";
       svg.onmousemove = null;
       svg.onmouseleave = null;
       return;
     }
 
     empty.hidden = true;
-    subtext.textContent = `Today vs average day over ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`;
+    subtitle.textContent = `Today vs average day over ${daysOnRecord} day${daysOnRecord === 1 ? "" : "s"} on record.`;
 
     const renderedRect = svg.getBoundingClientRect();
     const width = Math.max(640, Math.round(renderedRect.width || 760));
@@ -508,30 +573,36 @@
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
     const appendAxis = () => {
-      svg.appendChild(metrics.createSvgElement("line", {
-        x1: paddingLeft,
-        y1: paddingTop + plotHeight,
-        x2: paddingLeft + plotWidth,
-        y2: paddingTop + plotHeight,
-        class: "conscious-trend-axis"
-      }));
+      svg.appendChild(
+        metrics.createSvgElement("line", {
+          x1: paddingLeft,
+          y1: paddingTop + plotHeight,
+          x2: paddingLeft + plotWidth,
+          y2: paddingTop + plotHeight,
+          class: "conscious-trend-axis"
+        })
+      );
 
-      svg.appendChild(metrics.createSvgElement("line", {
-        x1: paddingLeft,
-        y1: paddingTop,
-        x2: paddingLeft,
-        y2: paddingTop + plotHeight,
-        class: "conscious-trend-axis"
-      }));
+      svg.appendChild(
+        metrics.createSvgElement("line", {
+          x1: paddingLeft,
+          y1: paddingTop,
+          x2: paddingLeft,
+          y2: paddingTop + plotHeight,
+          class: "conscious-trend-axis"
+        })
+      );
     };
 
     appendAxis();
 
     const averagePoints = averageCumulative.map((value, index) => ({ x: xForIndex(index), y: yForValue(value), value }));
-    svg.appendChild(metrics.createSvgElement("path", {
-      d: metrics.buildSmoothPath(averagePoints),
-      class: "conscious-trend-line conscious-trend-line-average"
-    }));
+    svg.appendChild(
+      metrics.createSvgElement("path", {
+        d: metrics.buildSmoothPath(averagePoints),
+        class: "conscious-trend-line conscious-trend-line-average"
+      })
+    );
 
     const todayPoints = [];
     for (let index = 0; index < config.graphBucketCount; index += 1) {
@@ -539,18 +610,22 @@
       todayPoints.push({ x: xForIndex(index), y: yForValue(todayCumulative[index]), value: todayCumulative[index] });
     }
 
-    svg.appendChild(metrics.createSvgElement("path", {
-      d: metrics.buildSmoothPath(todayPoints),
-      class: "conscious-trend-line conscious-trend-line-today"
-    }));
+    svg.appendChild(
+      metrics.createSvgElement("path", {
+        d: metrics.buildSmoothPath(todayPoints),
+        class: "conscious-trend-line conscious-trend-line-today"
+      })
+    );
 
-    svg.appendChild(metrics.createSvgElement("line", {
-      x1: xForIndex(todayBucket),
-      y1: paddingTop,
-      x2: xForIndex(todayBucket),
-      y2: paddingTop + plotHeight,
-      class: "conscious-trend-now-marker"
-    }));
+    svg.appendChild(
+      metrics.createSvgElement("line", {
+        x1: xForIndex(todayBucket),
+        y1: paddingTop,
+        x2: xForIndex(todayBucket),
+        y2: paddingTop + plotHeight,
+        class: "conscious-trend-now-marker"
+      })
+    );
 
     const hoverMarker = metrics.createSvgElement("line", {
       x1: paddingLeft,
