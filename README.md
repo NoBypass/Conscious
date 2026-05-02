@@ -60,6 +60,13 @@ This project now follows a layered structure to keep behavior loosely coupled an
 - `src/application/content/header-declutter.js`: header declutter behavior.
 - `src/application/content/daily-timer.js`: daily timer rendering.
 - `src/application/content/watch-session.js`: watch-session tracking and persistence.
+- `src/ui/inpage/state.js`: shared in-page UI state.
+- `src/ui/inpage/page-root.js`: page shell and settings toggles.
+- `src/ui/inpage/history-list.js`: history list rendering.
+- `src/ui/inpage/heatmap.js`: heatmap rendering and selection.
+- `src/ui/inpage/day-trend.js`: day trend chart rendering.
+- `src/ui/inpage/stats.js`: stats header rendering.
+- `src/ui/inpage/guide.js`: guide entry rendering.
 
 ## Load in Chrome
 
