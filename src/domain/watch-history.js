@@ -263,8 +263,7 @@
         if (!hadSessions) didMigrate = true;
         return nextEntry;
       })
-      .sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)))
-      .slice(0, config.historyLimit);
+      .sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
 
     if (migrated.length !== history.length) didMigrate = true;
 
@@ -428,7 +427,7 @@
     }
 
     history.sort((a, b) => String(b.lastWatchedAt).localeCompare(String(a.lastWatchedAt)));
-    return history.slice(0, config.historyLimit);
+    return history;
   };
 
   app.domain.watchHistory = {

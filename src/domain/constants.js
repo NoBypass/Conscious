@@ -9,7 +9,6 @@
   };
 
   app.config = {
-    historyLimit: 200,
     historyDisplayLimit: 100,
     historyRetentionDays: 120,
     timelineRecentEntryCount: 80,
